@@ -1,12 +1,14 @@
 GL_INCLUDE = -I/usr/include -I./include
 GL_LIB = -L/usr/lib64 ./lib/libGLEW.a
 
-hello-gl: hello-gl.o util.o
-	mkdir -p bin
-	gcc -o bin/hello-gl $^ $(GL_LIB) -lGL -lglut -lm
+all: particleSystem
 
-.c.o:
-	gcc -c -o $@ $< $(GL_INCLUDE)
+particleSystem: vec.o
+	mkdir -p bin
+	g++ -o bin/$@ $^ $(GL_LIB) -lGL -lglut -lm
+
+.cpp.o:
+	g++ -c -o $@ $< $(GL_INCLUDE)
 
 clean:
 	rm -f bin/hello-gl hello-gl.o
