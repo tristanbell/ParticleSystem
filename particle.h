@@ -11,7 +11,9 @@ public:
 	
 	float radius;
 	
-	Particle(Vec3 pos, Vec3 vel);
+	Particle(Vec3 pos, Vec3 vel, float radius);
+
+	bool collidesWith(Particle *other);
 };
 
 #endif
