@@ -5,7 +5,7 @@ all: particleSystem
 
 particleSystem: particle_system.o vec.o particle.o
 	mkdir -p bin
-	g++ -o bin/$@ $^ $(GL_LIB) -lGL -lglut -lm
+	g++ -o bin/$@ $^ $(GL_LIB) -lGL -lglut -lm -lGLU
 
 .cpp.o:
 	g++ -c -o $@ $< $(GL_INCLUDE)
