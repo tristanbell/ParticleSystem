@@ -13,6 +13,8 @@ public:
 	
 	Particle(Vec3 pos, Vec3 vel, float radius);
 
+	void move();
+
 	bool collidesWith(Particle *other);
 };
 

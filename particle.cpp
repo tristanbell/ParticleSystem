@@ -6,6 +6,11 @@ Particle::Particle(Vec3 pos, Vec3 vel, float radius) :
 	radius(radius)
 { }
 
+void Particle::move()
+{
+	position = position + velocity;
+}
+
 bool Particle::collidesWith(Particle *other)
 {
 	// Get differences between x, y, and z of these two points

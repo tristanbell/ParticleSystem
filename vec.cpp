@@ -26,3 +26,9 @@ Vec3 Vec3::normalised()
 	Vec3 normalised(x / len, y / len, z / len);
 	return normalised;
 }
+
+//Vec3 Vec3::reflection(Vec3 normal)
+//{
+//	Vec3 reflection = *this - 2 * ((*this).dot(&normal) * normal);
+//	return reflection;
+//}
