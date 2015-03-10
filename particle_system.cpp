@@ -72,6 +72,7 @@ static void render(void)
     glRotatef(camera_rot_lag[0], 1.0, 0.0, 0.0);
     glRotatef(camera_rot_lag[1], 0.0, 1.0, 0.0);
 
+    // Draw the particles
     pManager->render();
 
     // Draw the wire cube for the particle enclosure

@@ -50,7 +50,7 @@ ParticleManager::ParticleManager(int numParticles, Vec3 boxDimensions) {
 
 void ParticleManager::update()
 {
-	for (Particle p : mParticles) {
+	for (Particle& p : mParticles) {
 		p.move();
 	}
 }
