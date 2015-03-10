@@ -12,4 +12,5 @@ particleSystem: particle_system.o vec.o particle.o ParticleManager.o util.o
 	g++ $(CXXFLAGS) -c -o $@ $< $(GL_INCLUDE)
 
 clean:
-	rm -f bin/hello-gl hello-gl.o
+	rm -f bin/particleSystem ParticleManager.o particle.o particle_system.o util.o vec.o
+
