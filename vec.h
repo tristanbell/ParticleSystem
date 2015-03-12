@@ -16,6 +16,8 @@ public: // Methods
 	
 	Vec3 normalised();
 	
+//	Vec3 reflection(Vec3 normal);
+
 	// Operators
 	Vec3 operator+(const Vec3& other)
 	{
