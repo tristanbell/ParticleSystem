@@ -1,5 +1,5 @@
 /*
- * ParticleManager.cpp
+ * ParticleManager.cu
  *
  *  Created on: Mar 10, 2015
  *      Author: parallels
@@ -19,6 +19,19 @@ extern "C" {
 #else
 	#include <GL/freeglut.h>
 #endif
+
+#define BLOCK_SIZE 256
+#define GRID_SIZE 4
+
+// __global__ void moveParticles(Particle *particles, int size) {
+//  int t_x = threadIdx.x;
+// 	int b_x = blockIdx.x;	
+// 	int in_x = b_x * BLOCK_SIZE + t_x;
+// 	
+// 	if (in_x < size) {
+// 		particles[in_x].move();
+// 	}
+// }
 
 ParticleManager::ParticleManager(int numParticles, Vec3 boxDimensions) {
 	srand(time(NULL));
@@ -46,13 +59,20 @@ ParticleManager::ParticleManager(int numParticles, Vec3 boxDimensions) {
 
 		mParticles.push_back(Particle(pos, vel, 0.07));
 	}
+	
+	// Initialise device memory for particles
+	cudaMalloc((void**) &d_particles, sizeof(Particle) * numParticles);
 }
 
 void ParticleManager::update()
 {
-    for (int i=0; i<mParticles.size(); i++) {
-        mParticles[i].move();
-    }
+	// copy host memory to device
+// 	cudaMemcpy(d_particles, &mParticles[0], sizeof(Particle) * mParticles.size(), cudaMemcpyHostToDevice);
+// 	
+// 	moveParticles<<<GRID_SIZE, BLOCK_SIZE>>>(d_particles, mParticles.size());
+// 	
+// 	// copy result from device to host
+// 	cudaMemcpy(&mParticles[0], d_particles, sizeof(Particle) * mParticles.size(), cudaMemcpyDeviceToHost);
 }
 
 void ParticleManager::render()
