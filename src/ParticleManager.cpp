@@ -50,19 +50,19 @@ ParticleManager::ParticleManager(int numParticles, Vec3 boxDimensions) {
 
 void ParticleManager::update()
 {
-	for (Particle& p : mParticles) {
-		p.move();
-	}
+    for (int i=0; i<mParticles.size(); i++) {
+        mParticles[i].move();
+    }
 }
 
 void ParticleManager::render()
 {
     // Draw particles
-	for (Particle p : mParticles) {
+        for (int i=0; i<mParticles.size(); i++) {	
 		glPushMatrix();
-		glTranslatef(p.position.x, p.position.y, p.position.z);
+		glTranslatef(mParticles[i].position.x, mParticles[i].position.y, mParticles[i].position.z);
 		glColor3f(1, 0, 0);
-		glutSolidSphere(p.radius, 10, 10);
+		glutSolidSphere(mParticles[i].radius, 10, 10);
 		glPopMatrix();
 	}
 }
