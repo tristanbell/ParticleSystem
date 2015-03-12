@@ -24,3 +24,11 @@ bool Particle::collidesWith(Particle *other)
 
 	return distanceSquared <= collideDistSquared;
 }
+
+AABB Particle::getAABB()
+{
+	Vec3 size(radius*2, radius*2, radius*2);
+	AABB box(position, size);
+	
+	return box;
+}
