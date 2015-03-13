@@ -12,11 +12,9 @@
 #include "particle.h"
 #include "vec.h"
 
-using namespace std;
-
 class ParticleManager {
 protected:
-	vector<Particle> mParticles; // Host memory
+	std::vector<Particle> mParticles; // Host memory
 	Particle *d_particles; // Device memory
 
 public:

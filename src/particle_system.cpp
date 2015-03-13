@@ -8,7 +8,7 @@
 
 #include <cmath>
 #include "particle.h"
-#include "ParticleManager.h"
+//#include "ParticleManager.h"
 
 // Camera parameters
 int ox, oy;
@@ -34,7 +34,7 @@ const GLfloat mat_diffuse[]    = { 0.8f, 0.8f, 0.8f, 1.0f };
 const GLfloat mat_specular[]   = { 1.0f, 1.0f, 1.0f, 1.0f };
 const GLfloat high_shininess[] = { 100.0f };
 
-ParticleManager *pManager;
+//ParticleManager *pManager;
 
 /**
  * Update particle system here. This is called by the GLUT
@@ -42,7 +42,7 @@ ParticleManager *pManager;
  */
 static void idle(void)
 {
-	pManager->update();
+//	pManager->update();
 
 	glutPostRedisplay();
 }
@@ -73,7 +73,7 @@ static void render(void)
     glRotatef(camera_rot_lag[1], 0.0, 1.0, 0.0);
 
     // Draw the particles
-    pManager->render();
+    //pManager->render();
 
     // Draw the wire cube for the particle enclosure
     glColor3f(1.0, 1.0, 1.0);
@@ -243,11 +243,11 @@ void initGL(int argc, char **argv)
 int main(int argc, char **argv) {
 	initGL(argc, argv);
 
-	pManager = new ParticleManager(100, Vec3(2,2,2));
+	// pManager = new ParticleManager(100, Vec3(2,2,2));
 
 	glutMainLoop();
 
-	delete pManager;
+	// delete pManager;
 
 	return 0;
 }

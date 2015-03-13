@@ -1,9 +1,8 @@
-include_directories(${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/include/GL)
+set(CPP_SOURCE_FILES particle.cpp particle_system.cpp vec.cpp util.c)
 
-set(SOURCE_FILES particle.cpp ParticleManager.cu particle_system.cpp vec.cpp util.c)
+# Compile CUDA libraries
+CUDA_ADD_LIBRARY(test cuda-test.cu)
 
-link_directories(${CMAKE_SOURCE_DIR}/lib)
-
-CUDA_ADD_EXECUTABLE(ParticleSystem ${SOURCE_FILES})
-
-target_link_libraries (ParticleSystem  ${GLEW_LIBRARIES} ${GLUT_LIBRARIES} ${OPENGL_LIBRARIES} ${CUDA_LIBRARIES})
+ADD_EXECUTABLE(${EXECUTABLE_NAME} ${CPP_SOURCE_FILES})
+# Link shared libraries and compiled CUDA libraries
+TARGET_LINK_LIBRARIES (${EXECUTABLE_NAME} ${GLEW_LIBRARIES} ${GLUT_LIBRARIES} ${OPENGL_LIBRARIES} ${CUDA_LIBRARIES} test)
