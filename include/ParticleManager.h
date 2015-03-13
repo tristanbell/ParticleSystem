@@ -14,8 +14,7 @@
 
 class ParticleManager {
 protected:
-	std::vector<Particle> mParticles; // Host memory
-	Particle *d_particles; // Device memory
+	std::vector<Particle> mParticles;
 
 public:
 	ParticleManager(int numParticles, Vec3 boxDimensions);

@@ -1,11 +1,12 @@
 /*
- * ParticleManager.cu
+ * ParticleManager.cpp
  *
  *  Created on: Mar 10, 2015
  *      Author: parallels
  */
 
 #include "ParticleManager.h"
+#include "particles.cuh"
 #include <cstdlib>
 #include <ctime>
 
@@ -20,19 +21,6 @@ extern "C" {
 	#include <GL/freeglut.h>
 #endif
 
-#define BLOCK_SIZE 256
-#define GRID_SIZE 4
-
-// __global__ void moveParticles(Particle *particles, int size) {
-//  int t_x = threadIdx.x;
-// 	int b_x = blockIdx.x;	
-// 	int in_x = b_x * BLOCK_SIZE + t_x;
-// 	
-// 	if (in_x < size) {
-// 		particles[in_x].move();
-// 	}
-// }
-
 ParticleManager::ParticleManager(int numParticles, Vec3 boxDimensions) {
 	srand(time(NULL));
 
@@ -43,36 +31,33 @@ ParticleManager::ParticleManager(int numParticles, Vec3 boxDimensions) {
 	float maxZ = boxDimensions.z / 2;
 	float minZ = -maxZ;
 
-	float maxVel = boxDimensions.x / 40;
+	float maxVel = boxDimensions.x / 400;
 
 	for (int i = 0; i < numParticles; i++) {
 		float xPos = randomFloat(minX, maxX);
 		float yPos = randomFloat(minY, maxY);
 		float zPos = randomFloat(minZ, maxZ);
 
-		float xVel = randomFloat(0, maxVel);
-		float yVel = randomFloat(0, maxVel);
-		float zVel = randomFloat(0, maxVel);
+		float xVel = randomFloat(-maxVel, maxVel);
+		float yVel = randomFloat(-maxVel, maxVel);
+		float zVel = randomFloat(-maxVel, maxVel);
 
 		Vec3 pos(xPos, yPos, zPos);
 		Vec3 vel(xVel, yVel, zVel);
 
-		mParticles.push_back(Particle(pos, vel, 0.07));
+		Particle newParticle(pos, vel, 0.02);
+		mParticles.push_back(newParticle);
 	}
-	
-	// Initialise device memory for particles
-	cudaMalloc((void**) &d_particles, sizeof(Particle) * numParticles);
+
+	cuda_init(numParticles);
 }
 
 void ParticleManager::update()
 {
-	// copy host memory to device
-// 	cudaMemcpy(d_particles, &mParticles[0], sizeof(Particle) * mParticles.size(), cudaMemcpyHostToDevice);
-// 	
-// 	moveParticles<<<GRID_SIZE, BLOCK_SIZE>>>(d_particles, mParticles.size());
-// 	
-// 	// copy result from device to host
-// 	cudaMemcpy(&mParticles[0], d_particles, sizeof(Particle) * mParticles.size(), cudaMemcpyDeviceToHost);
+	particles_update(&mParticles[0], mParticles.size());
+//	for (int i = 0; i < mParticles.size(); i++) {
+//		mParticles[i].move();
+//	}
 }
 
 void ParticleManager::render()
