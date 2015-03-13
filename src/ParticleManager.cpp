@@ -67,7 +67,7 @@ void ParticleManager::render()
 		glPushMatrix();
 		glTranslatef(mParticles[i].position.x, mParticles[i].position.y, mParticles[i].position.z);
 		glColor3f(1, 0, 0);
-		glutSolidSphere(mParticles[i].radius, 10, 10);
+		glutSolidSphere(mParticles[i].radius, 6, 6);
 		glPopMatrix();
 	}
 }

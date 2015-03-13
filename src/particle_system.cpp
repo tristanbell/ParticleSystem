@@ -228,16 +228,16 @@ void initGL(int argc, char **argv) {
 	glEnable(GL_NORMALIZE);
 	glEnable(GL_COLOR_MATERIAL);
 	glEnable(GL_LIGHTING);
-//
-//	glLightfv(GL_LIGHT0, GL_AMBIENT, light_ambient);
-//	glLightfv(GL_LIGHT0, GL_DIFFUSE, light_diffuse);
-//	glLightfv(GL_LIGHT0, GL_SPECULAR, light_specular);
-//	glLightfv(GL_LIGHT0, GL_POSITION, light_position);
-//
-//	glMaterialfv(GL_FRONT, GL_AMBIENT, mat_ambient);
-//	glMaterialfv(GL_FRONT, GL_DIFFUSE, mat_diffuse);
-//	glMaterialfv(GL_FRONT, GL_SPECULAR, mat_specular);
-//	glMaterialfv(GL_FRONT, GL_SHININESS, high_shininess);
+
+	glLightfv(GL_LIGHT0, GL_AMBIENT, light_ambient);
+	glLightfv(GL_LIGHT0, GL_DIFFUSE, light_diffuse);
+	glLightfv(GL_LIGHT0, GL_SPECULAR, light_specular);
+	glLightfv(GL_LIGHT0, GL_POSITION, light_position);
+
+	glMaterialfv(GL_FRONT, GL_AMBIENT, mat_ambient);
+	glMaterialfv(GL_FRONT, GL_DIFFUSE, mat_diffuse);
+	glMaterialfv(GL_FRONT, GL_SPECULAR, mat_specular);
+	glMaterialfv(GL_FRONT, GL_SHININESS, high_shininess);
 
 	glewInit();
 
@@ -247,7 +247,7 @@ void initGL(int argc, char **argv) {
 int main(int argc, char **argv) {
 	initGL(argc, argv);
 
-	pManager = new ParticleManager(1000, Vec3(2, 2, 2));
+	pManager = new ParticleManager(7000, Vec3(2, 2, 2));
 
 	glutMainLoop();
 
