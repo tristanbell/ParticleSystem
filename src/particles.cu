@@ -5,9 +5,8 @@
 #include <stdio.h>
 #include <math.h>
 
-#define BLOCK_SIZE 1024
-#define GRID_SIZE 10
-
+static int gridSize;
+static int blockSize;
 static Particle *d_particles;
 
 __device__ void vectorAdd(Vec3 *v1, Vec3 *v2, Vec3 *out) {
@@ -65,7 +64,7 @@ __device__ void vectorReflection(Vec3 *v, Vec3 *normal, Vec3 *out) {
 __global__ void moveParticles(Particle *particles, int size) {
 	int t_x = threadIdx.x;
 	int b_x = blockIdx.x;
-	int in_x = b_x * BLOCK_SIZE + t_x;
+	int in_x = b_x * blockDim.x + t_x;
 
 	if (in_x < size) {
 		Vec3 newPos = particles[in_x].position;
@@ -107,6 +106,16 @@ __global__ void moveParticles(Particle *particles, int size) {
 	}
 }
 
+// The following 2 functions taken from the cuda samples
+int iDivUp(int a, int b) {
+	return (a % b != 0) ? (a / b + 1) : (a / b);
+}
+
+void computeGridSize(int n, int blockSize, int &numBlocks, int &numThreads) {
+	numThreads = min(blockSize, n);
+	numBlocks = iDivUp(n, numThreads);
+}
+
 //__global__ void findCollisions(Particle *particles, int size,
 //		CollisionList *outCollisions) {
 //	int t_x = threadIdx.x;
@@ -121,6 +130,8 @@ __global__ void moveParticles(Particle *particles, int size) {
 void cuda_init(int numParticles) {
 	// Initialise device memory for particles
 	cudaMalloc((void**) &d_particles, sizeof(Particle) * numParticles);
+
+	computeGridSize(numParticles, 256, gridSize, blockSize);
 }
 
 void particles_update(Particle *particles, int particlesSize) {
@@ -128,7 +139,7 @@ void particles_update(Particle *particles, int particlesSize) {
 	cudaMemcpy(d_particles, particles, sizeof(Particle) * particlesSize,
 			cudaMemcpyHostToDevice);
 
-	moveParticles<<<GRID_SIZE, BLOCK_SIZE>>>(d_particles, particlesSize);
+	moveParticles<<<gridSize, blockSize>>>(d_particles, particlesSize);
 
 	// copy result from device to host
 	cudaMemcpy(particles, d_particles, sizeof(Particle) * particlesSize,

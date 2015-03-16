@@ -12,9 +12,20 @@
 #include "particle.h"
 #include "vec.h"
 
+#include <GL/glew.h>
+#ifdef __APPLE__
+#  include <GLUT/glut.h>
+#else
+	#include <GL/freeglut.h>
+#endif
+
 class ParticleManager {
 protected:
 	std::vector<Particle> mParticles;
+	GLuint mVBO;
+	GLuint mColorVBO;
+
+	float *particlesArray();
 
 public:
 	ParticleManager(int numParticles, Vec3 boxDimensions);

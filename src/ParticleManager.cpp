@@ -14,15 +14,17 @@ extern "C" {
 #include "util.h"
 }
 
-#include <GL/glew.h>
-#ifdef __APPLE__
-#  include <GLUT/glut.h>
-#else
-	#include <GL/freeglut.h>
-#endif
+GLuint createVBO(GLuint size) {
+	GLuint vbo;
+	glGenBuffers(1, &vbo);
+	glBindBuffer(GL_ARRAY_BUFFER, vbo);
+	glBufferData(GL_ARRAY_BUFFER, size, 0, GL_DYNAMIC_DRAW);
+	glBindBuffer(GL_ARRAY_BUFFER, 0);
+	return vbo;
+}
 
 ParticleManager::ParticleManager(int numParticles, Vec3 boxDimensions) {
-	srand(time(NULL));
+	srand (time(NULL));
 
 	float maxX = boxDimensions.x / 2;
 	float minX = -maxX;
@@ -50,24 +52,77 @@ ParticleManager::ParticleManager(int numParticles, Vec3 boxDimensions) {
 	}
 
 	cuda_init(numParticles);
-}
 
-void ParticleManager::update()
-{
-	particles_update(&mParticles[0], mParticles.size());
-//	for (int i = 0; i < mParticles.size(); i++) {
-//		mParticles[i].move();
-//	}
-}
+	// Generate vertex VBO
+	mVBO = createVBO(sizeof(float) * 4 * numParticles);
 
-void ParticleManager::render()
-{
-    // Draw particles
-        for (int i=0; i<mParticles.size(); i++) {	
-		glPushMatrix();
-		glTranslatef(mParticles[i].position.x, mParticles[i].position.y, mParticles[i].position.z);
-		glColor3f(1, 0, 0);
-		glutSolidSphere(mParticles[i].radius, 6, 6);
-		glPopMatrix();
+	mColorVBO = createVBO(sizeof(float) * 4 * numParticles);
+
+	// Fill color buffer (taken from cuda samples)
+	glBindBuffer(GL_ARRAY_BUFFER, mColorVBO);
+	float *data = (float *) glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
+	float *ptr = data;
+
+	for (int i = 0; i < numParticles; i++)
+	{
+		float t = i / (float) numParticles;
+
+		*ptr++ = rand() / (float) RAND_MAX;
+		*ptr++ = rand() / (float) RAND_MAX;
+		*ptr++ = rand() / (float) RAND_MAX;
+		*ptr++ = 1.0f;
 	}
+
+	glUnmapBuffer(GL_ARRAY_BUFFER);
+}
+
+float *ParticleManager::particlesArray() {
+	float *array = new float[mParticles.size() * 4];
+
+	for (int i = 0; i < mParticles.size(); i++) {
+		int idx = i * 4;
+
+		array[idx] = mParticles[i].position.x;
+		array[idx + 1] = mParticles[i].position.y;
+		array[idx + 2] = mParticles[i].position.z;
+		array[idx + 3] = 1;
+	}
+
+	return array;
+}
+
+void ParticleManager::update() {
+	particles_update(&mParticles[0], mParticles.size());
+
+	float *pArray = particlesArray();
+
+	// Set the vertex VBO data to the particle positions
+	glBindBuffer(GL_ARRAY_BUFFER, mVBO);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(float) * 4 * mParticles.size(), pArray,
+			GL_DYNAMIC_DRAW);
+	glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+	delete pArray;
+}
+
+void ParticleManager::render() {
+	// Set particle rendering size
+	glPointSize(1.5f);
+
+	// Bind the vertex VBO
+	glBindBuffer(GL_ARRAY_BUFFER, mVBO);
+	glVertexPointer(4, GL_FLOAT, 0, 0);
+	glEnableClientState(GL_VERTEX_ARRAY);
+
+	// Bind color VBO
+	glBindBuffer(GL_ARRAY_BUFFER, mColorVBO);
+	glColorPointer(4, GL_FLOAT, 0, 0);
+	glEnableClientState(GL_COLOR_ARRAY);
+
+	glDrawArrays(GL_POINTS, 0, mParticles.size());
+
+	// Clean up
+	glBindBuffer(GL_ARRAY_BUFFER, 0);
+	glDisableClientState(GL_VERTEX_ARRAY);
+	glDisableClientState(GL_COLOR_ARRAY);
 }
