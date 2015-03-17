@@ -24,6 +24,7 @@ protected:
 	std::vector<Particle> mParticles;
 	GLuint mVBO;
 	GLuint mColorVBO;
+	GLuint mProgram;
 
 	float *particlesArray();
 

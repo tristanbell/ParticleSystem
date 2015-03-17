@@ -1,4 +1,4 @@
-set(CPP_SOURCE_FILES particle.cpp particle_system.cpp ParticleManager.cpp vec.cu util.c particles.cu)
+set(CPP_SOURCE_FILES particle.cpp particle_system.cpp ParticleManager.cpp vec.cu util.c particles.cu shaders.cpp)
 
 CUDA_ADD_EXECUTABLE(${EXECUTABLE_NAME} ${CPP_SOURCE_FILES})
 # Link shared libraries and compiled CUDA libraries

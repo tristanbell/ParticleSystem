@@ -246,8 +246,20 @@ void initGL(int argc, char **argv) {
 
 int main(int argc, char **argv) {
 	initGL(argc, argv);
+	
+	int numParticles = 1000;
+	
+	if (argc > 1) {
+		numParticles = atoi(argv[1]);
+		
+		// If they haven't entered a number
+		if (numParticles == 0) {
+			fprintf(stderr, "Please enter a valid number of particles (1-200000)");
+			return 1;
+		}
+	}
 
-	pManager = new ParticleManager(1000, Vec3(2, 2, 2));
+	pManager = new ParticleManager(numParticles, Vec3(2, 2, 2));
 
 	glutMainLoop();
 

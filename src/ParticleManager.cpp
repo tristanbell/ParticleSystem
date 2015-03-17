@@ -7,6 +7,7 @@
 
 #include "ParticleManager.h"
 #include "particles.cuh"
+#include "shaders.h"
 #include <cstdlib>
 #include <ctime>
 
@@ -21,6 +22,41 @@ GLuint createVBO(GLuint size) {
 	glBufferData(GL_ARRAY_BUFFER, size, 0, GL_DYNAMIC_DRAW);
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
 	return vbo;
+}
+
+GLuint
+compileProgram(const char *vsource, const char *fsource)
+{
+	GLuint vertexShader = glCreateShader(GL_VERTEX_SHADER);
+	GLuint fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
+	
+	glShaderSource(vertexShader, 1, &vsource, 0);
+	glShaderSource(fragmentShader, 1, &fsource, 0);
+	
+	glCompileShader(vertexShader);
+	glCompileShader(fragmentShader);
+	
+	GLuint program = glCreateProgram();
+	
+	glAttachShader(program, vertexShader);
+	glAttachShader(program, fragmentShader);
+	
+	glLinkProgram(program);
+	
+	// check if program linked
+	GLint success = 0;
+	glGetProgramiv(program, GL_LINK_STATUS, &success);
+	
+	if (!success)
+	{
+		char temp[256];
+		glGetProgramInfoLog(program, 256, 0, temp);
+		printf("Failed to link program:\n%s\n", temp);
+		glDeleteProgram(program);
+		program = 0;
+	}
+	
+	return program;
 }
 
 ParticleManager::ParticleManager(int numParticles, Vec3 boxDimensions) {
@@ -52,6 +88,9 @@ ParticleManager::ParticleManager(int numParticles, Vec3 boxDimensions) {
 	}
 
 	cuda_init(numParticles);
+	
+	// Compile shaders
+	mProgram = compileProgram(vertexShader, spherePixelShader);
 
 	// Generate vertex VBO
 	mVBO = createVBO(sizeof(float) * 4 * numParticles);
@@ -106,6 +145,16 @@ void ParticleManager::update() {
 }
 
 void ParticleManager::render() {
+	glEnable(GL_POINT_SPRITE);
+	glTexEnvi(GL_POINT_SPRITE, GL_COORD_REPLACE, GL_TRUE);
+	glEnable(GL_VERTEX_PROGRAM_POINT_SIZE_NV);
+	glDepthMask(GL_TRUE);
+	glEnable(GL_DEPTH_TEST);
+	
+	glUseProgram(mProgram);
+	glUniform1f(glGetUniformLocation(mProgram, "pointScale"), 640 / tanf(60*0.5f*(float)M_PI/180.0f));
+	glUniform1f(glGetUniformLocation(mProgram, "pointRadius"), mParticles[0].radius);
+	
 	// Set particle rendering size
 	glPointSize(1.5f);
 
@@ -125,4 +174,6 @@ void ParticleManager::render() {
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
 	glDisableClientState(GL_VERTEX_ARRAY);
 	glDisableClientState(GL_COLOR_ARRAY);
+	glUseProgram(0);
+	glDisable(GL_POINT_SPRITE);
 }
