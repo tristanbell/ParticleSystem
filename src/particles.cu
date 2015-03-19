@@ -51,15 +51,15 @@ __device__ void vectorReflection(Vec3 *v, Vec3 *normal, Vec3 *out) {
 	vectorMinus(v, &scalVec, out);
 }
 
-//__device__ bool particlesCollide(Particle *p1, Particle *p2) {
-//	Vec3 collideVec = p1->position;
-//	vectorMinus(&(p2->position), &(p1->position), &collideVec);
-//
-//	float radiuses = p1->radius + p2->radius;
-//	float collideDistSq = radiuses * radiuses;
-//
-//	return vectorLengthSquared(*collideVec) <= collideDistSq;
-//}
+__device__ bool particlesCollide(Particle *p1, Particle *p2) {
+	Vec3 collideVec = p1->position;
+	vectorMinus(&(p2->position), &(p1->position), &collideVec);
+
+	float radiuses = p1->radius + p2->radius;
+	float collideDistSq = radiuses * radiuses;
+
+	return vectorLengthSquared(&collideVec) <= collideDistSq;
+}
 
 __global__ void moveParticles(Particle *particles, int size) {
 	int t_x = threadIdx.x;
@@ -67,13 +67,15 @@ __global__ void moveParticles(Particle *particles, int size) {
 	int in_x = b_x * blockDim.x + t_x;
 
 	if (in_x < size) {
-		Vec3 newPos = particles[in_x].position;
-		Vec3 vel = particles[in_x].velocity;
+		Particle thisParticle = particles[in_x];
+
+		Vec3 newPos = thisParticle.position;
+		Vec3 vel = thisParticle.velocity;
 
 		vectorAdd(&newPos, &vel, &newPos);
 
 		// Declare normal for wall collisions
-		Vec3 normal = particles[in_x].position;
+		Vec3 normal = thisParticle.position;
 		bool shouldReflect = false;
 
 		if (newPos.x > 1 || newPos.x < -1) {
@@ -99,8 +101,20 @@ __global__ void moveParticles(Particle *particles, int size) {
 			vectorReflection(&vel, &normal, &vel);
 		}
 
-		vectorAdd(&(particles[in_x].position), &vel, &newPos);
+		for (int i = 0; i < size; i++) {
+			if (i != in_x) { // Don't consider ourselves
+				Particle other = particles[i];
 
+				if (particlesCollide(&thisParticle, &other)) {
+					vel.x = 0;
+					vel.y = 0;
+					vel.z = 0;
+				}
+			}
+		}
+
+		// Move this particle
+		vectorAdd(&(thisParticle.position), &vel, &newPos);
 		particles[in_x].position = newPos;
 		particles[in_x].velocity = vel;
 	}

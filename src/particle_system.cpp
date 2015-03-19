@@ -106,12 +106,17 @@ static void render(void) {
  * updating for the new aspect ratio.
  */
 void reshape(int w, int h) {
+	float fov = 60.0f;
+	
 	glMatrixMode(GL_PROJECTION);
 	glLoadIdentity();
-	gluPerspective(60.0, (float) w / (float) h, 0.1, 100.0);
+	gluPerspective(fov, (float) w / (float) h, 0.1, 100.0);
 
 	glMatrixMode(GL_MODELVIEW);
 	glViewport(0, 0, w, h);
+	
+	pManager->mWindowHeight = h;
+	pManager->mFOV = fov;
 }
 
 /**

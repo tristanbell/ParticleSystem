@@ -69,7 +69,7 @@ ParticleManager::ParticleManager(int numParticles, Vec3 boxDimensions) {
 	float maxZ = boxDimensions.z / 2;
 	float minZ = -maxZ;
 
-	float maxVel = boxDimensions.x / 400;
+	float maxVel = boxDimensions.x / 200;
 
 	for (int i = 0; i < numParticles; i++) {
 		float xPos = randomFloat(minX, maxX);
@@ -152,7 +152,7 @@ void ParticleManager::render() {
 	glEnable(GL_DEPTH_TEST);
 	
 	glUseProgram(mProgram);
-	glUniform1f(glGetUniformLocation(mProgram, "pointScale"), 640 / tanf(60*0.5f*(float)M_PI/180.0f));
+	glUniform1f(glGetUniformLocation(mProgram, "pointScale"), mWindowHeight / tanf(mFOV*0.5f*(float)M_PI/180.0f));
 	glUniform1f(glGetUniformLocation(mProgram, "pointRadius"), mParticles[0].radius);
 	
 	// Set particle rendering size

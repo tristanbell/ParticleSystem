@@ -27,6 +27,11 @@ protected:
 	GLuint mProgram;
 
 	float *particlesArray();
+	
+public:
+	// Camera parameters for shaders
+	float mWindowHeight;
+	float mFOV;
 
 public:
 	ParticleManager(int numParticles, Vec3 boxDimensions);
