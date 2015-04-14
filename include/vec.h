@@ -15,19 +15,12 @@ public: // Methods
 	
 	float dot(Vec3 *other);
 
-	float length() {
-		float sum = 0;
-		sum += x * x;
-		sum += y * y;
-		sum += z * z;
+	float length();
 
-		return sqrt(sum);
-	}
-	
-	Vec3 normalised();
-	
+//	Vec3 normalised();
+
 //	Vec3 reflection(Vec3 normal);
-//
+
 	// Operators
 	Vec3 operator+(const Vec3& other)
 	{

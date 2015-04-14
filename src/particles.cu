@@ -9,56 +9,98 @@ static int gridSize;
 static int blockSize;
 static Particle *d_particles;
 
-__device__ void vectorAdd(Vec3 *v1, Vec3 *v2, Vec3 *out) {
-	out->x = v1->x + v2->x;
-	out->y = v1->y + v2->y;
-	out->z = v1->z + v2->z;
-}
+// Vector class for the device
+class DeviceVec {
 
-__device__ void vectorMinus(Vec3 *v1, Vec3 *v2, Vec3 *out) {
-	out->x = v1->x - v2->x;
-	out->y = v1->y - v2->y;
-	out->z = v1->z - v2->z;
-}
+public: // Member variables
+	float x;
+	float y;
+	float z;
 
-__device__ void vectorMul(Vec3 *v1, Vec3 *v2, Vec3 *out) {
-	out->x = v1->x * v2->x;
-	out->y = v1->y * v2->y;
-	out->z = v1->z * v2->z;
-}
+public: // Methods
+	__device__ DeviceVec(float x, float y, float z) : x(x), y(y), z(z)
+	{ }
 
-__device__ void scalarMul(Vec3 *v, float s, Vec3 *out) {
-	out->x = v->x * s;
-	out->y = v->y * s;
-	out->z = v->z * s;
-}
+	__device__ DeviceVec(DeviceVec *v) : x(v->x), y(v->y), z(v->z)
+	{ }
 
-__device__ float vectorDot(Vec3 *v1, Vec3 *v2) {
-	return v1->x * v2->x + v1->y * v2->y + v1->z * v2->z;
-}
+	__device__ DeviceVec(Vec3 *v) : x(v->x), y(v->y), z(v->z)
+	{ }
 
-__device__ float vectorLengthSquared(Vec3 *v) {
-	return v->x * v->x + v->y * v->y + v->z * v->z;
-}
+	__device__ float lengthSquared() {
+		float sum = 0;
+		sum += x * x;
+		sum += y * y;
+		sum += z * z;
 
-__device__ void vectorReflection(Vec3 *v, Vec3 *normal, Vec3 *out) {
-	float dot;
-	Vec3 scalVec = *out;
+		return sum;
+	}
 
-	dot = vectorDot(v, normal);
-	scalarMul(normal, 2 * dot, &scalVec);
+	__device__ float length() {
+		return sqrt(lengthSquared());
+	}
 
-	vectorMinus(v, &scalVec, out);
-}
+	__device__ void toVec3(Vec3 *toFill)
+	{
+		toFill->x = x;
+		toFill->y = y;
+		toFill->z = z;
+	}
+
+	__device__ float dot(DeviceVec *other)
+	{
+		return x * other->x + y * other->y + z * other->z;
+	}
+
+	__device__ DeviceVec normalised()
+	{
+		float len = length();
+
+		DeviceVec normalised(x / len, y / len, z / len);
+		return normalised;
+	}
+
+	__device__ DeviceVec *reflection(DeviceVec *normal)
+	{
+		DeviceVec tmp(x, y, z);
+		tmp = tmp - (*normal * 2 * this->dot(normal));
+
+		return new DeviceVec(tmp);
+	}
+
+	// Operators
+	__device__ DeviceVec operator+(const DeviceVec& other)
+	{
+		DeviceVec newVec(x + other.x, y + other.y, z + other.z);
+		return newVec;
+	}
+
+	__device__ DeviceVec operator-(const DeviceVec& other)
+	{
+		DeviceVec newVec(x - other.x, y - other.y, z - other.z);
+		return newVec;
+	}
+
+	__device__ DeviceVec operator*(const DeviceVec& other)
+	{
+		DeviceVec newVec(x * other.x, y * other.y, z * other.z);
+		return newVec;
+	}
+
+	__device__ DeviceVec operator*(float scalar)
+	{
+		DeviceVec newVec(x * scalar, y * scalar, z * scalar);
+		return newVec;
+	}
+};
 
 __device__ bool particlesCollide(Particle *p1, Particle *p2) {
-	Vec3 collideVec = p1->position;
-	vectorMinus(&(p2->position), &(p1->position), &collideVec);
+	DeviceVec collideVec = DeviceVec(&(p2->position)) - DeviceVec(&(p1->position));
 
 	float radiuses = p1->radius + p2->radius;
 	float collideDistSq = radiuses * radiuses;
 
-	return vectorLengthSquared(&collideVec) <= collideDistSq;
+	return collideVec.lengthSquared() <= collideDistSq;
 }
 
 __global__ void moveParticles(Particle *particles, int size) {
@@ -69,36 +111,41 @@ __global__ void moveParticles(Particle *particles, int size) {
 	if (in_x < size) {
 		Particle thisParticle = particles[in_x];
 
-		Vec3 newPos = thisParticle.position;
-		Vec3 vel = thisParticle.velocity;
+		DeviceVec newPosD(&thisParticle.position);
+		DeviceVec velD(&thisParticle.velocity);
 
-		vectorAdd(&newPos, &vel, &newPos);
+		// Calculate our new desired position
+		newPosD = newPosD + velD;
 
 		// Declare normal for wall collisions
-		Vec3 normal = thisParticle.position;
+		DeviceVec normalD(0, 0, 0);
+
 		bool shouldReflect = false;
 
-		if (newPos.x > 1 || newPos.x < -1) {
+		// Set the reflection normal to the wall's normal,
+		// if we're touching it
+		if (newPosD.x > 1 || newPosD.x < -1) {
 			shouldReflect = true;
-			normal.x = 1;
-			normal.y = 0;
-			normal.z = 0;
+			normalD.x = 1;
+			normalD.y = 0;
+			normalD.z = 0;
 		}
-		if (newPos.y > 1 || newPos.y < -1) {
+		if (newPosD.y > 1 || newPosD.y < -1) {
 			shouldReflect = true;
-			normal.x = 0;
-			normal.y = 1;
-			normal.z = 0;
+			normalD.x = 0;
+			normalD.y = 1;
+			normalD.z = 0;
 		}
-		if (newPos.z > 1 || newPos.z < -1) {
+		if (newPosD.z > 1 || newPosD.z < -1) {
 			shouldReflect = true;
-			normal.x = 0;
-			normal.y = 0;
-			normal.z = 1;
+			normalD.x = 0;
+			normalD.y = 0;
+			normalD.z = 1;
 		}
 
 		if (shouldReflect) {
-			vectorReflection(&vel, &normal, &vel);
+			// Reflect with respect to the wall's normal
+			velD = velD.reflection(&normalD);
 		}
 
 		for (int i = 0; i < size; i++) {
@@ -106,17 +153,19 @@ __global__ void moveParticles(Particle *particles, int size) {
 				Particle other = particles[i];
 
 				if (particlesCollide(&thisParticle, &other)) {
-					vel.x = 0;
-					vel.y = 0;
-					vel.z = 0;
+					velD.x = 0;
+					velD.y = 0;
+					velD.z = 0;
 				}
 			}
 		}
 
+		// Calculate the position after movement
+		newPosD = DeviceVec(&thisParticle.position) + velD;
+
 		// Move this particle
-		vectorAdd(&(thisParticle.position), &vel, &newPos);
-		particles[in_x].position = newPos;
-		particles[in_x].velocity = vel;
+		newPosD.toVec3(&particles[in_x].position);
+		velD.toVec3(&particles[in_x].velocity);
 	}
 }
 
