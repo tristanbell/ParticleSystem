@@ -9,6 +9,7 @@
 #include "particles.cuh"
 #include "shaders.h"
 #include <cstdlib>
+#include <stdio.h>
 #include <ctime>
 
 extern "C" {
