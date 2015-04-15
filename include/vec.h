@@ -17,7 +17,7 @@ public: // Methods
 
 	float length();
 
-//	Vec3 normalised();
+	Vec3 normalised();
 
 //	Vec3 reflection(Vec3 normal);
 

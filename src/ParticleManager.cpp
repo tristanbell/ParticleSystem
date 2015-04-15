@@ -59,7 +59,7 @@ GLuint compileProgram(const char *vsource, const char *fsource) {
 ParticleManager::ParticleManager(int numParticles, Vec3 boxDimensions) {
 	srand (time(NULL));
 
-float	maxX = boxDimensions.x / 2;
+	float maxX = boxDimensions.x / 2;
 	float minX = -maxX;
 	float maxY = boxDimensions.y / 2;
 	float minY = -maxY;
@@ -83,6 +83,22 @@ float	maxX = boxDimensions.x / 2;
 		Particle newParticle2(pos2, vel2, 0.02);
 		mParticles.push_back(newParticle);
 		mParticles.push_back(newParticle2);
+	}
+	else if (numParticles == 3) {
+		Vec3 pos1(minX, 0, 0);
+		Vec3 pos2(maxX, 0, 0);
+		Vec3 pos3(0, maxY, 0);
+
+		Vec3 vel1(maxVel, 0, 0);
+		Vec3 vel2(-maxVel, 0, 0);
+		Vec3 vel3(0, -maxVel, 0);
+
+		Particle newParticle(pos1, vel1, 0.02);
+		Particle newParticle2(pos2, vel2, 0.02);
+		Particle newParticle3(pos3, vel3, 0.02);
+		mParticles.push_back(newParticle);
+		mParticles.push_back(newParticle2);
+		mParticles.push_back(newParticle3);
 	}
 	else {
 		for (int i = 0; i < numParticles; i++) {

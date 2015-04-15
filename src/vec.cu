@@ -18,3 +18,11 @@ float Vec3::length()
 
 	return sqrt(sum);
 }
+
+Vec3 Vec3::normalised()
+{
+	float len = length();
+	Vec3 norm(x/len, y/len, z/len);
+	
+	return norm;
+}

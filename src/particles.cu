@@ -120,40 +120,33 @@ __global__ void moveParticles(Particle *particles, Particle *out, int size) {
 
 		DeviceVec newPosD(&thisParticle.position);
 		DeviceVec velD(&thisParticle.velocity);
+		
+		DeviceVec force(0, 0, 0);
 
 		for (int i = 0; i < size; i++) {
 			if (i != in_x) { // Don't consider ourselves
 				Particle other = particles[i];
 
 				if (particlesCollide(&thisParticle, &other)) {
-					DeviceVec v1(&thisParticle.velocity);
-					DeviceVec v2(&other.velocity);
+					DeviceVec posA(&thisParticle.position);
+					DeviceVec posB(&other.position);
+					DeviceVec velA(&thisParticle.velocity);
+					DeviceVec velB(&other.velocity);
+				
+					DeviceVec relPos = posB - posA;
 
-					// First, find the normalized vector n from the center of
-					// circle1 to the center of circle2
-					DeviceVec n = DeviceVec(&thisParticle.position) - DeviceVec(&other.position);
-					n = n.normalised();
-					// Find the length of the component of each of the movement
-					// vectors along n.
-					// a1 = v1 . n
-					// a2 = v2 . n
-					float a1 = v1.dot(&n);
-					float a2 = v2.dot(&n);
+					float dist = relPos.length();
+					float collideDist = thisParticle.radius + other.radius;
+					
+					DeviceVec norm = relPos.normalised();
 
-					// Using the optimized version,
-					// optimizedP =  2(a1 - a2)
-					//              -----------
-					//                m1 + m2
-					float optimizedP = (2.0 * (a1 - a2)) / (thisParticle.radius + other.radius);
-
-					// Calculate v1', the new movement vector of circle1
-					// v1' = v1 - optimizedP * m2 * n
-					DeviceVec newV1 = v1 - n * optimizedP * other.radius;
-
-					velD = newV1;
+					// spring force
+					force = force + norm * -0.5*(collideDist - dist);
 				}
 			}
 		}
+
+		velD = velD + force;
 
 		// Calculate our new desired position
 		newPosD = newPosD + velD;
