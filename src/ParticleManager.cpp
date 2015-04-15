@@ -14,7 +14,6 @@
 extern "C" {
 #include "util.h"
 }
-
 GLuint createVBO(GLuint size) {
 	GLuint vbo;
 	glGenBuffers(1, &vbo);
@@ -24,45 +23,42 @@ GLuint createVBO(GLuint size) {
 	return vbo;
 }
 
-GLuint
-compileProgram(const char *vsource, const char *fsource)
-{
+GLuint compileProgram(const char *vsource, const char *fsource) {
 	GLuint vertexShader = glCreateShader(GL_VERTEX_SHADER);
 	GLuint fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
-	
+
 	glShaderSource(vertexShader, 1, &vsource, 0);
 	glShaderSource(fragmentShader, 1, &fsource, 0);
-	
+
 	glCompileShader(vertexShader);
 	glCompileShader(fragmentShader);
-	
+
 	GLuint program = glCreateProgram();
-	
+
 	glAttachShader(program, vertexShader);
 	glAttachShader(program, fragmentShader);
-	
+
 	glLinkProgram(program);
-	
+
 	// check if program linked
 	GLint success = 0;
 	glGetProgramiv(program, GL_LINK_STATUS, &success);
-	
-	if (!success)
-	{
+
+	if (!success) {
 		char temp[256];
 		glGetProgramInfoLog(program, 256, 0, temp);
 		printf("Failed to link program:\n%s\n", temp);
 		glDeleteProgram(program);
 		program = 0;
 	}
-	
+
 	return program;
 }
 
 ParticleManager::ParticleManager(int numParticles, Vec3 boxDimensions) {
 	srand (time(NULL));
 
-	float maxX = boxDimensions.x / 2;
+float	maxX = boxDimensions.x / 2;
 	float minX = -maxX;
 	float maxY = boxDimensions.y / 2;
 	float minY = -maxY;
@@ -71,24 +67,43 @@ ParticleManager::ParticleManager(int numParticles, Vec3 boxDimensions) {
 
 	float maxVel = boxDimensions.x / 200;
 
-	for (int i = 0; i < numParticles; i++) {
-		float xPos = randomFloat(minX, maxX);
-		float yPos = randomFloat(minY, maxY);
-		float zPos = randomFloat(minZ, maxZ);
+//	float minRadius = 0.01;
+//	float maxRadius = 0.1;
 
-		float xVel = randomFloat(-maxVel, maxVel);
-		float yVel = randomFloat(-maxVel, maxVel);
-		float zVel = randomFloat(-maxVel, maxVel);
+	float radius = 0.02;
 
-		Vec3 pos(xPos, yPos, zPos);
-		Vec3 vel(xVel, yVel, zVel);
+	if (numParticles == 2) {
+		Vec3 pos1(minX, 0, 0);
+		Vec3 pos2(maxX, 0, 0);
+		Vec3 vel1(maxVel, 0, 0);
+		Vec3 vel2(-maxVel, 0, 0);
 
-		Particle newParticle(pos, vel, 0.02);
+		Particle newParticle(pos1, vel1, 0.02);
+		Particle newParticle2(pos2, vel2, 0.02);
 		mParticles.push_back(newParticle);
+		mParticles.push_back(newParticle2);
+	}
+	else {
+		for (int i = 0; i < numParticles; i++) {
+			float xPos = randomFloat(minX, maxX);
+			float yPos = randomFloat(minY, maxY);
+			float zPos = randomFloat(minZ, maxZ);
+
+			float xVel = randomFloat(-maxVel, maxVel);
+			float yVel = randomFloat(-maxVel, maxVel);
+			float zVel = randomFloat(-maxVel, maxVel);
+
+			Vec3 pos(xPos, yPos, zPos);
+			Vec3 vel(xVel, yVel, zVel);
+
+//			float radius = randomFloat(minRadius, maxRadius);
+			Particle newParticle(pos, vel, radius);
+			mParticles.push_back(newParticle);
+		}
 	}
 
 	cuda_init(numParticles);
-	
+
 	// Compile shaders
 	mProgram = compileProgram(vertexShader, spherePixelShader);
 
@@ -150,11 +165,13 @@ void ParticleManager::render() {
 	glEnable(GL_VERTEX_PROGRAM_POINT_SIZE_NV);
 	glDepthMask(GL_TRUE);
 	glEnable(GL_DEPTH_TEST);
-	
+
 	glUseProgram(mProgram);
-	glUniform1f(glGetUniformLocation(mProgram, "pointScale"), mWindowHeight / tanf(mFOV*0.5f*(float)M_PI/180.0f));
-	glUniform1f(glGetUniformLocation(mProgram, "pointRadius"), mParticles[0].radius);
-	
+	glUniform1f(glGetUniformLocation(mProgram, "pointScale"),
+			mWindowHeight / tanf(mFOV * 0.5f * (float) M_PI / 180.0f));
+	glUniform1f(glGetUniformLocation(mProgram, "pointRadius"),
+			mParticles[0].radius);
+
 	// Set particle rendering size
 	glPointSize(1.5f);
 

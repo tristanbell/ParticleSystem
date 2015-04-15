@@ -8,6 +8,7 @@
 static int gridSize;
 static int blockSize;
 static Particle *d_particles;
+static Particle *d_particles_out;
 
 // Vector class for the device
 class DeviceVec {
@@ -81,13 +82,19 @@ public: // Methods
 		return newVec;
 	}
 
+	__device__ DeviceVec operator-(const float scalar)
+	{
+		DeviceVec newVec(x - scalar, y - scalar, z - scalar);
+		return newVec;
+	}
+
 	__device__ DeviceVec operator*(const DeviceVec& other)
 	{
 		DeviceVec newVec(x * other.x, y * other.y, z * other.z);
 		return newVec;
 	}
 
-	__device__ DeviceVec operator*(float scalar)
+	__device__ DeviceVec operator*(const float scalar)
 	{
 		DeviceVec newVec(x * scalar, y * scalar, z * scalar);
 		return newVec;
@@ -103,7 +110,7 @@ __device__ bool particlesCollide(Particle *p1, Particle *p2) {
 	return collideVec.lengthSquared() <= collideDistSq;
 }
 
-__global__ void moveParticles(Particle *particles, int size) {
+__global__ void moveParticles(Particle *particles, Particle *out, int size) {
 	int t_x = threadIdx.x;
 	int b_x = blockIdx.x;
 	int in_x = b_x * blockDim.x + t_x;
@@ -113,6 +120,40 @@ __global__ void moveParticles(Particle *particles, int size) {
 
 		DeviceVec newPosD(&thisParticle.position);
 		DeviceVec velD(&thisParticle.velocity);
+
+		for (int i = 0; i < size; i++) {
+			if (i != in_x) { // Don't consider ourselves
+				Particle other = particles[i];
+
+				if (particlesCollide(&thisParticle, &other)) {
+					DeviceVec v1(&thisParticle.velocity);
+					DeviceVec v2(&other.velocity);
+
+					// First, find the normalized vector n from the center of
+					// circle1 to the center of circle2
+					DeviceVec n = DeviceVec(&thisParticle.position) - DeviceVec(&other.position);
+					n = n.normalised();
+					// Find the length of the component of each of the movement
+					// vectors along n.
+					// a1 = v1 . n
+					// a2 = v2 . n
+					float a1 = v1.dot(&n);
+					float a2 = v2.dot(&n);
+
+					// Using the optimized version,
+					// optimizedP =  2(a1 - a2)
+					//              -----------
+					//                m1 + m2
+					float optimizedP = (2.0 * (a1 - a2)) / (thisParticle.radius + other.radius);
+
+					// Calculate v1', the new movement vector of circle1
+					// v1' = v1 - optimizedP * m2 * n
+					DeviceVec newV1 = v1 - n * optimizedP * other.radius;
+
+					velD = newV1;
+				}
+			}
+		}
 
 		// Calculate our new desired position
 		newPosD = newPosD + velD;
@@ -124,19 +165,19 @@ __global__ void moveParticles(Particle *particles, int size) {
 
 		// Set the reflection normal to the wall's normal,
 		// if we're touching it
-		if (newPosD.x > 1 || newPosD.x < -1) {
+		if ((newPosD.x > 1 && velD.x > 0) || (newPosD.x < -1 && velD.x < 0)) {
 			shouldReflect = true;
 			normalD.x = 1;
 			normalD.y = 0;
 			normalD.z = 0;
 		}
-		if (newPosD.y > 1 || newPosD.y < -1) {
+		if ((newPosD.y > 1 && velD.y > 0) || (newPosD.y < -1 && velD.y < 0)) {
 			shouldReflect = true;
 			normalD.x = 0;
 			normalD.y = 1;
 			normalD.z = 0;
 		}
-		if (newPosD.z > 1 || newPosD.z < -1) {
+		if ((newPosD.z > 1 && velD.z > 0) || (newPosD.z < -1 && velD.z < 0)) {
 			shouldReflect = true;
 			normalD.x = 0;
 			normalD.y = 0;
@@ -148,24 +189,14 @@ __global__ void moveParticles(Particle *particles, int size) {
 			velD = velD.reflection(&normalD);
 		}
 
-		for (int i = 0; i < size; i++) {
-			if (i != in_x) { // Don't consider ourselves
-				Particle other = particles[i];
-
-				if (particlesCollide(&thisParticle, &other)) {
-					velD.x = 0;
-					velD.y = 0;
-					velD.z = 0;
-				}
-			}
-		}
+		// Move this particle
+		out[in_x] = thisParticle;
 
 		// Calculate the position after movement
 		newPosD = DeviceVec(&thisParticle.position) + velD;
 
-		// Move this particle
-		newPosD.toVec3(&particles[in_x].position);
-		velD.toVec3(&particles[in_x].velocity);
+		newPosD.toVec3(&out[in_x].position);
+		velD.toVec3(&out[in_x].velocity);
 	}
 }
 
@@ -193,6 +224,7 @@ void computeGridSize(int n, int blockSize, int &numBlocks, int &numThreads) {
 void cuda_init(int numParticles) {
 	// Initialise device memory for particles
 	cudaMalloc((void**) &d_particles, sizeof(Particle) * numParticles);
+	cudaMalloc((void**) &d_particles_out, sizeof(Particle) * numParticles);
 
 	computeGridSize(numParticles, 256, gridSize, blockSize);
 }
@@ -202,9 +234,9 @@ void particles_update(Particle *particles, int particlesSize) {
 	cudaMemcpy(d_particles, particles, sizeof(Particle) * particlesSize,
 			cudaMemcpyHostToDevice);
 
-	moveParticles<<<gridSize, blockSize>>>(d_particles, particlesSize);
+	moveParticles<<<gridSize, blockSize>>>(d_particles, d_particles_out, particlesSize);
 
 	// copy result from device to host
-	cudaMemcpy(particles, d_particles, sizeof(Particle) * particlesSize,
+	cudaMemcpy(particles, d_particles_out, sizeof(Particle) * particlesSize,
 			cudaMemcpyDeviceToHost);
 }
