@@ -101,6 +101,26 @@ public: // Methods
 	}
 };
 
+__device__ void traverse( BVHNode* node, CollisionList& list, const AABB& queryAABB, Particle* particle, int particleIdx, DeviceVec* forces )
+{
+	// Bounding box overlaps the query => process node.
+	if (checkOverlap(getAABB(node), queryAABB))
+	{
+		// Leaf node => resolve collision.
+		if (node->isLeaf())
+			if(particlesCollide(particle, node->particle))
+				collide(particle, node->particle, &forces[particleIdx]);
+		// Internal node => recurse to children.
+		else
+		{
+			BVHNode* childL = node->leftChild;
+			BVHNode* childR = node->rightChilde;
+			traverse(childL, list, queryAABB, particle);
+			traverse(childR, list, queryAABB, particle);
+		}
+	}
+}
+
 __device__ bool particlesCollide(Particle *p1, Particle *p2) {
 	DeviceVec collideVec = DeviceVec(&(p2->position)) - DeviceVec(&(p1->position));
 
