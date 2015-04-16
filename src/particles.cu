@@ -9,6 +9,8 @@ static int gridSize;
 static int blockSize;
 static Particle *d_particles;
 static Particle *d_particles_out;
+static DeviceVec *d_forces;
+static BVHNode rootNode;
 
 /**
  *  3D vector class for the device.
@@ -169,7 +171,7 @@ struct BVHNode {
 	{ return !(leftChild || rightChild); }
 };
 
-__device__ void traverse( BVHNode* node, CollisionList& list, const AABB& queryAABB, Particle* particle, int particleIdx, DeviceVec* forces )
+__device__ void traverse( BVHNode* node, const AABB& queryAABB, Particle* particle, int particleIdx, DeviceVec* forces )
 {
 	// Bounding box overlaps the query => process node.
 	if (checkOverlap(getAABB(node), queryAABB))
@@ -213,7 +215,7 @@ __device__ void collide(Particle *p1, Particle *p2, DeviceVec *force) {
 	*force = *force + norm * -0.5*(collideDist - dist);
 }
 
-__global__ void moveParticles(Particle *particles, Particle *out, int size) {
+__global__ void moveParticles(Particle *particles, Particle *out, int size, DeviceVec *forces) {
 	int t_x = threadIdx.x;
 	int b_x = blockIdx.x;
 	int in_x = b_x * blockDim.x + t_x;
@@ -221,22 +223,14 @@ __global__ void moveParticles(Particle *particles, Particle *out, int size) {
 	if (in_x < size) {
 		Particle thisParticle = particles[in_x];
 
+		AABB query = AABB::fromParticle(&thisParticle);
+
+		traverse(&rootNode, query, &thisParticle, in_x, &forces);
+
 		DeviceVec newPosD(&thisParticle.position);
 		DeviceVec velD(&thisParticle.velocity);
-		
-		DeviceVec force(0, 0, 0);
 
-		for (int i = 0; i < size; i++) {
-			if (i != in_x) { // Don't consider ourselves
-				Particle other = particles[i];
-
-				if (particlesCollide(&thisParticle, &other)) {
-					collide(&thisParticle, &other, &force);
-				}
-			}
-		}
-
-		velD = velD + force;
+		velD = velD + forces[in_x];
 
 		// Calculate our new desired position
 		newPosD = newPosD + velD;
@@ -328,6 +322,7 @@ void cuda_init(int numParticles) {
 	// Initialise device memory for particles
 	cudaMalloc((void**) &d_particles, sizeof(Particle) * numParticles);
 	cudaMalloc((void**) &d_particles_out, sizeof(Particle) * numParticles);
+	cudaMalloc((void**) &d_forces, sizeof(DeviceVec) * numParticles);
 
 	computeGridSize(numParticles, 256, gridSize, blockSize);
 }
