@@ -15,20 +15,25 @@ static Particle *d_particles_out;
  */
 class DeviceVec {
 
-public: // Member variables
+public:
+	// Member variables
 	float x;
 	float y;
 	float z;
 
-public: // Methods
-	__device__ DeviceVec(float x, float y, float z) : x(x), y(y), z(z)
-	{ }
+public:
+	// Methods
+	__host__ __device__ DeviceVec(float x, float y, float z) :
+			x(x), y(y), z(z) {
+	}
 
-	__device__ DeviceVec(DeviceVec *v) : x(v->x), y(v->y), z(v->z)
-	{ }
+	__host__ __device__ DeviceVec(DeviceVec *v) :
+			x(v->x), y(v->y), z(v->z) {
+	}
 
-	__device__ DeviceVec(Vec3 *v) : x(v->x), y(v->y), z(v->z)
-	{ }
+	__host__ __device__ DeviceVec(Vec3 *v) :
+			x(v->x), y(v->y), z(v->z) {
+	}
 
 	__device__ float lengthSquared() {
 		float sum = 0;
@@ -106,31 +111,43 @@ private:
 	float height;
 	float depth;
 
-	__device__ float getLeft(float halfWidth)
-	{ return centre.x - halfWidth; }
+	__host__ __device__ float getLeft(float halfWidth) {
+		return centre.x - halfWidth;
+	}
 
-	__device__ float getRight(float halfWidth)
-	{ return centre.x + halfWidth; }
+	__host__ __device__ float getRight(float halfWidth) {
+		return centre.x + halfWidth;
+	}
 
-	__device__ float getTop(float halfHeight)
-	{ return centre.y + halfHeight; }
+	__host__ __device__ float getTop(float halfHeight) {
+		return centre.y + halfHeight;
+	}
 
-	__device__ float getBottom(float halfHeight)
-	{ return centre.y - halfHeight; }
+	__host__ __device__ float getBottom(float halfHeight) {
+		return centre.y - halfHeight;
+	}
 
-	__device__ float getFront(float halfDepth)
-	{ return centre.z + halfDepth; }
+	__host__ __device__ float getFront(float halfDepth) {
+		return centre.z + halfDepth;
+	}
 
-	__device__ float getBack(float halfDepth)
-	{ return centre.z - halfDepth; }
+	__host__ __device__ float getBack(float halfDepth) {
+		return centre.z - halfDepth;
+	}
 
 public:
-	__device__ AABB(DeviceVec centre, float width, float height, float depth) :
-		centre(centre), width(width), height(height), depth(depth)
-	{ }
+	__host__ __device__ AABB(DeviceVec centre, float width, float height, float depth) :
+			centre(centre), width(width), height(height), depth(depth) {
+	}
 
-	__device__ bool intersects(AABB *other)
-	{
+	__host__ __device__  static AABB fromParticle(Particle *p) {
+		DeviceVec centre(&p->position);
+		float diameter = p->radius * 2; // This is width, height, and depth
+
+		return AABB(centre, diameter, diameter, diameter);
+	}
+
+	__device__ bool intersects(AABB *other) {
 		float halfWidth = width / 2;
 		float oHalfWidth = other->width / 2;
 		float halfHeight = height / 2;
@@ -138,14 +155,44 @@ public:
 		float halfDepth = depth / 2;
 		float oHalfDepth = other->depth / 2;
 
-		if (getRight(halfWidth) <= other->getLeft(oHalfWidth)) return false;
-		if (getLeft(halfWidth) >= other->getRight(oHalfWidth)) return false;
-		if (getBottom(halfHeight) >= other->getTop(oHalfHeight)) return false;
-		if (getTop(halfHeight) <= other->getBottom(oHalfHeight)) return false;
-		if (getFront(halfDepth) <= other->getBack(oHalfDepth)) return false;
-		if (getBack(halfDepth) >= other->getFront(oHalfDepth)) return false;
+		if (getRight(halfWidth) <= other->getLeft(oHalfWidth))
+			return false;
+		if (getLeft(halfWidth) >= other->getRight(oHalfWidth))
+			return false;
+		if (getBottom(halfHeight) >= other->getTop(oHalfHeight))
+			return false;
+		if (getTop(halfHeight) <= other->getBottom(oHalfHeight))
+			return false;
+		if (getFront(halfDepth) <= other->getBack(oHalfDepth))
+			return false;
+		if (getBack(halfDepth) >= other->getFront(oHalfDepth))
+			return false;
 
 		return true;
+	}
+
+	AABB aabbUnion(AABB other) {
+		float halfWidth = width / 2;
+		float oHalfWidth = other.width / 2;
+		float halfHeight = height / 2;
+		float oHalfHeight = other.height / 2;
+		float halfDepth = depth / 2;
+		float oHalfDepth = other.depth / 2;
+
+		float left = min(getLeft(halfWidth), other.getLeft(oHalfWidth));
+		float right = max(getRight(halfWidth), other.getRight(oHalfWidth));
+		float top = max(getTop(halfHeight), other.getTop(oHalfHeight));
+		float bottom = min(getBottom(halfHeight), other.getBottom(oHalfHeight));
+		float front = max(getFront(halfDepth), other.getFront(oHalfDepth));
+		float back = min(getBack(halfDepth), other.getBack(oHalfDepth));
+
+		float newWidth = right - left;
+		float newHeight = top - bottom;
+		float newDepth = front - back;
+
+		DeviceVec newCentre(left + newWidth/2, bottom + newHeight/2, back + newDepth/2);
+
+		return AABB(newCentre, newWidth, newHeight, newDepth);
 	}
 };
 
@@ -156,21 +203,29 @@ public:
  */
 struct BVHNode {
 	Particle *particle;
-	AABB *boundingBox;
+	AABB boundingBox;
 	BVHNode *leftChild, *rightChild;
 
-	__device__ BVHNode *leafNode(AABB *aabb) {
-		boundingBox = aabb;
-		leftChild = NULL;
-		rightChild = NULL;
+	// Constructor creates an internal (non-leaf) node
+	BVHNode(AABB aabb, BVHNode *l, BVHNode *r) :
+		particle(NULL), boundingBox(aabb), leftChild(l), rightChild(r)
+	{ }
+
+	static BVHNode *leafNode(Particle *p) {
+		BVHNode *node = new BVHNode(AABB::fromParticle(p), NULL, NULL);
+		node->particle = p;
+
+		return node;
 	}
 
-	__device__ bool isLeaf()
-	{ return !(leftChild || rightChild); }
+	__device__ bool isLeaf() {
+		return !(leftChild || rightChild);
+	}
 };
 
 __device__ bool particlesCollide(Particle *p1, Particle *p2) {
-	DeviceVec collideVec = DeviceVec(&(p2->position)) - DeviceVec(&(p1->position));
+	DeviceVec collideVec = DeviceVec(&(p2->position))
+			- DeviceVec(&(p1->position));
 
 	float radiuses = p1->radius + p2->radius;
 	float collideDistSq = radiuses * radiuses;
@@ -185,12 +240,12 @@ __device__ void collide(Particle *p1, Particle *p2, DeviceVec *force) {
 	DeviceVec relPos = posB - posA;
 
 	float dist = relPos.length();
-	float collideDist = thisParticle.radius + other.radius;
+	float collideDist = p1->radius + p2->radius;
 
 	DeviceVec norm = relPos.normalised();
 
 	// spring force
-	*force = *force + norm * -0.5*(collideDist - dist);
+	*force = *force + norm * -0.5 * (collideDist - dist);
 }
 
 __global__ void moveParticles(Particle *particles, Particle *out, int size) {
@@ -203,7 +258,7 @@ __global__ void moveParticles(Particle *particles, Particle *out, int size) {
 
 		DeviceVec newPosD(&thisParticle.position);
 		DeviceVec velD(&thisParticle.velocity);
-		
+
 		DeviceVec force(0, 0, 0);
 
 		for (int i = 0; i < size; i++) {
@@ -267,31 +322,97 @@ __global__ void moveParticles(Particle *particles, Particle *out, int size) {
 ////////////////////////////////////////
 // Expands a 10-bit integer into 30 bits
 // by inserting 2 zeros after each bit.
-unsigned int expandBits(unsigned int v)
-{
-    v = (v * 0x00010001u) & 0xFF0000FFu;
-    v = (v * 0x00000101u) & 0x0F00F00Fu;
-    v = (v * 0x00000011u) & 0xC30C30C3u;
-    v = (v * 0x00000005u) & 0x49249249u;
-    return v;
+unsigned int expandBits(unsigned int v) {
+	v = (v * 0x00010001u) & 0xFF0000FFu;
+	v = (v * 0x00000101u) & 0x0F00F00Fu;
+	v = (v * 0x00000011u) & 0xC30C30C3u;
+	v = (v * 0x00000005u) & 0x49249249u;
+	return v;
 }
 
 // Calculates a 30-bit Morton code for the
 // given 3D point located within the cube [-1,1].
-unsigned int morton3D(float x, float y, float z)
-{
+unsigned int morton3D(DeviceVec *v) {
 	// Shift to scale coordinates between 0 and 1
-	x = (x + 1) / 2;
-	y = (y + 1) / 2;
-	z = (z + 1) / 2;
+	float x = (v->x + 1) / 2;
+	float y = (v->y + 1) / 2;
+	float z = (v->z + 1) / 2;
 
-    x = min(max(x << 10, 0.0f), 1023.0f);
-    y = min(max(y << 10, 0.0f), 1023.0f);
-    z = min(max(z << 10, 0.0f), 1023.0f);
-    unsigned int xx = expandBits((unsigned int)x);
-    unsigned int yy = expandBits((unsigned int)y);
-    unsigned int zz = expandBits((unsigned int)z);
-    return xx << 2 + yy << 1 + zz;
+	x = min(max(x * 1024, 0.0f), 1023.0f);
+	y = min(max(y * 1024, 0.0f), 1023.0f);
+	z = min(max(z * 1024, 0.0f), 1023.0f);
+	unsigned int xx = expandBits((unsigned int) x);
+	unsigned int yy = expandBits((unsigned int) y);
+	unsigned int zz = expandBits((unsigned int) z);
+	return (xx << 2) + (yy << 1) + zz;
+}
+
+int leadingZeros(unsigned int n) {
+	int numBits = (int)sizeof(n) * 8;
+
+	unsigned int mask = 1 << (numBits-1);
+
+	int numZeros = 0;
+
+	while (((n & mask) == 0) && (mask > 0)) {
+		numZeros++;
+		mask >>= 1;
+	}
+
+	return numZeros;
+}
+
+int splitSearch(unsigned int *sortedMortonCodes, unsigned int currentMSB, unsigned int currentBest, int first, int last) {
+//	printf("\tCurrent best: %u\n", currentBest);
+
+	int mid = first + ((last - first) + 1)/2;
+
+//	printf("Looking at %d: %u\n", mid, sortedMortonCodes[mid]);
+
+	int msb = leadingZeros(sortedMortonCodes[0] ^ sortedMortonCodes[mid]);
+
+
+	if (first == last) {
+		if (msb > currentMSB)
+			currentBest = first;
+
+		return currentBest;
+	}
+
+	if (msb > currentMSB) {
+//		printf("Going right\n");
+		return splitSearch(sortedMortonCodes, currentMSB, mid, mid + 1, last);
+	}
+	else {
+//		printf("Going left\n");
+		return splitSearch(sortedMortonCodes, currentMSB, currentBest, first, mid - 1);
+	}
+}
+
+int findSplit(unsigned int *sortedMortonCodes, int first, int last) {
+	// Generate an initial guess for most significant differing bit
+	int msb = leadingZeros(sortedMortonCodes[first] ^ sortedMortonCodes[last]);
+	unsigned int currentBest = first;
+
+	return splitSearch(sortedMortonCodes, msb, currentBest, first, last);
+}
+
+// BVH generation adapted from the above link
+BVHNode* generateBVH(unsigned int *sortedMortonCodes, Particle *sortedParticles, int first, int last) {
+	// Base case: create a leaf node
+	if (first == last) {
+		return BVHNode::leafNode(&sortedParticles[first]);
+	}
+
+	// Find the point to split Morton codes for subtrees
+	int splitIdx = findSplit(sortedMortonCodes, first, last);
+
+	// Recursively generate subtrees for the split ranges
+	BVHNode* left = generateBVH(sortedMortonCodes, sortedParticles, first, splitIdx);
+	BVHNode* right = generateBVH(sortedMortonCodes, sortedParticles, splitIdx + 1, last);
+
+	// Node contains union of left and right bounding boxes
+	return new BVHNode(left->boundingBox.aabbUnion(right->boundingBox), left, right);
 }
 
 // The following 2 functions taken from the cuda samples
@@ -310,6 +431,11 @@ void cuda_init(int numParticles) {
 	cudaMalloc((void**) &d_particles_out, sizeof(Particle) * numParticles);
 
 	computeGridSize(numParticles, 256, gridSize, blockSize);
+
+	unsigned int codes[] = { 19 };
+	int split = findSplit(codes, 0, 0);
+
+	printf("Split: %d\n", split);
 }
 
 void particles_update(Particle *particles, int particlesSize) {
@@ -317,7 +443,8 @@ void particles_update(Particle *particles, int particlesSize) {
 	cudaMemcpy(d_particles, particles, sizeof(Particle) * particlesSize,
 			cudaMemcpyHostToDevice);
 
-	moveParticles<<<gridSize, blockSize>>>(d_particles, d_particles_out, particlesSize);
+	moveParticles<<<gridSize, blockSize>>>(d_particles, d_particles_out,
+			particlesSize);
 
 	// copy result from device to host
 	cudaMemcpy(particles, d_particles_out, sizeof(Particle) * particlesSize,

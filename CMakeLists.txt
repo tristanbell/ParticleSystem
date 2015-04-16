@@ -6,7 +6,7 @@ set(EXECUTABLE_NAME "ParticleSystem")
 
 # Locate and load all necessary packages
 set(GLEW_INCLUDE_DIR "${CMAKE_SOURCE_DIR}/include/GL")
-set(GLEW_LIBRARY "${CMAKE_SOURCE_DIR}/lib/libGLEW.a")
+set(GLEW_LIBRARY "${CMAKE_SOURCE_DIR}/lib/darwin/libGLEW.a")
 
 find_package(OpenGL REQUIRED)
 find_package(GLUT REQUIRED)
