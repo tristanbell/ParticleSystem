@@ -16,7 +16,7 @@ find_package(CUDA 4.0 QUIET REQUIRED)
 include_directories(${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/include/GL)
 
 # Compilation flags
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libstdc++")
 set(CUDA_NVCC_FLAGS ${CUDA_NVCC_FLAGS};-arch sm_21)
 
 # Recurse into source directory

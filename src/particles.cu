@@ -1,14 +1,28 @@
 #include "particles.cuh"
 #include "vec.h"
 
-#include <cuda.h>
 #include <stdio.h>
 #include <math.h>
+
+#include <cuda.h>
+#include <thrust/host_vector.h>
+#include <thrust/device_vector.h>
+#include <thrust/sort.h>
+
+class DeviceVec;
+class BVHNode;
 
 static int gridSize;
 static int blockSize;
 static Particle *d_particles;
 static Particle *d_particles_out;
+static int *d_particleIdxs;
+static unsigned int *mortonCodes;
+static unsigned int *d_morton_codes;
+static DeviceVec *d_forces;
+static thrust::host_vector<BVHNode> nodes;
+static BVHNode *d_nodes;
+static int numBVHNodes;
 
 /**
  *  3D vector class for the device.
@@ -136,6 +150,10 @@ private:
 	}
 
 public:
+	__host__ __device__ AABB() :
+			centre(0,0,0), width(0), height(0), depth(0) {
+	}
+
 	__host__ __device__ AABB(DeviceVec centre, float width, float height, float depth) :
 			centre(centre), width(width), height(height), depth(depth) {
 	}
@@ -204,22 +222,26 @@ public:
 struct BVHNode {
 	Particle *particle;
 	AABB boundingBox;
-	BVHNode *leftChild, *rightChild;
+	int leftChildIdx, rightChildIdx;
 
-	// Constructor creates an internal (non-leaf) node
-	BVHNode(AABB aabb, BVHNode *l, BVHNode *r) :
-		particle(NULL), boundingBox(aabb), leftChild(l), rightChild(r)
+	BVHNode() :
+		particle(NULL), leftChildIdx(-1), rightChildIdx(-1)
 	{ }
 
-	static BVHNode *leafNode(Particle *p) {
-		BVHNode *node = new BVHNode(AABB::fromParticle(p), NULL, NULL);
-		node->particle = p;
+	// Constructor creates an internal (non-leaf) node
+	BVHNode(AABB aabb, int l, int r) :
+		particle(NULL), boundingBox(aabb), leftChildIdx(l), rightChildIdx(r)
+	{ }
+
+	static BVHNode leafNode(Particle *p) {
+		BVHNode node(AABB::fromParticle(p), -1, -1);
+		node.particle = p;
 
 		return node;
 	}
 
 	__device__ bool isLeaf() {
-		return !(leftChild || rightChild);
+		return leftChildIdx == -1 && rightChildIdx == -1;
 	}
 };
 
@@ -248,7 +270,28 @@ __device__ void collide(Particle *p1, Particle *p2, DeviceVec *force) {
 	*force = *force + norm * -0.5 * (collideDist - dist);
 }
 
-__global__ void moveParticles(Particle *particles, Particle *out, int size) {
+__device__ void traverse( BVHNode node, BVHNode *nodeVec, AABB& queryAABB, Particle* particle, int particleIdx, DeviceVec* forces )
+{
+	// Bounding box overlaps the query => process node.
+	if (node.boundingBox.intersects(&queryAABB))
+	{
+		// Leaf node => resolve collision.
+		if (node.isLeaf())
+			if(particlesCollide(particle, node.particle))
+				collide(particle, node.particle, &forces[particleIdx]);
+		// Internal node => recurse to children.
+		else
+		{
+			BVHNode childL = nodeVec[node.leftChildIdx];
+			BVHNode childR = nodeVec[node.rightChildIdx];
+			traverse(childL, nodeVec, queryAABB, particle, particleIdx, forces);
+			traverse(childR, nodeVec, queryAABB, particle, particleIdx, forces);
+		}
+	}
+}
+
+__global__ void moveParticles(int bvhRootIdx, BVHNode *nodes, Particle *particles, Particle *out, int size, DeviceVec *forces) {
+//__global__ void moveParticles(Particle *particles, Particle *out, int size) {
 	int t_x = threadIdx.x;
 	int b_x = blockIdx.x;
 	int in_x = b_x * blockDim.x + t_x;
@@ -256,8 +299,13 @@ __global__ void moveParticles(Particle *particles, Particle *out, int size) {
 	if (in_x < size) {
 		Particle thisParticle = particles[in_x];
 
+//		AABB query = AABB::fromParticle(&thisParticle);
+//		traverse(nodes[bvhRootIdx], nodes, query, &thisParticle, in_x, forces);
+
 		DeviceVec newPosD(&thisParticle.position);
 		DeviceVec velD(&thisParticle.velocity);
+
+//		velD = velD + forces[in_x];
 
 		DeviceVec force(0, 0, 0);
 
@@ -310,8 +358,13 @@ __global__ void moveParticles(Particle *particles, Particle *out, int size) {
 		// Move this particle
 		out[in_x] = thisParticle;
 
+//		printf("Old: %f, %f, %f\n", thisParticle.position.x, thisParticle.position.y, thisParticle.position.z);
+
 		// Calculate the position after movement
 		newPosD = DeviceVec(&thisParticle.position) + velD;
+
+
+//		printf("New: %f, %f, %f\n\n", newPosD.x, newPosD.y, newPosD.z);
 
 		newPosD.toVec3(&out[in_x].position);
 		velD.toVec3(&out[in_x].velocity);
@@ -322,7 +375,7 @@ __global__ void moveParticles(Particle *particles, Particle *out, int size) {
 ////////////////////////////////////////
 // Expands a 10-bit integer into 30 bits
 // by inserting 2 zeros after each bit.
-unsigned int expandBits(unsigned int v) {
+__host__ __device__ unsigned int expandBits(unsigned int v) {
 	v = (v * 0x00010001u) & 0xFF0000FFu;
 	v = (v * 0x00000101u) & 0x0F00F00Fu;
 	v = (v * 0x00000011u) & 0xC30C30C3u;
@@ -332,11 +385,13 @@ unsigned int expandBits(unsigned int v) {
 
 // Calculates a 30-bit Morton code for the
 // given 3D point located within the cube [-1,1].
-unsigned int morton3D(DeviceVec *v) {
+__host__ __device__ unsigned int morton3D(Particle *p) {
+	DeviceVec v(&p->position);
+
 	// Shift to scale coordinates between 0 and 1
-	float x = (v->x + 1) / 2;
-	float y = (v->y + 1) / 2;
-	float z = (v->z + 1) / 2;
+	float x = (v.x + 1) / 2;
+	float y = (v.y + 1) / 2;
+	float z = (v.z + 1) / 2;
 
 	x = min(max(x * 1024, 0.0f), 1023.0f);
 	y = min(max(y * 1024, 0.0f), 1023.0f);
@@ -344,7 +399,17 @@ unsigned int morton3D(DeviceVec *v) {
 	unsigned int xx = expandBits((unsigned int) x);
 	unsigned int yy = expandBits((unsigned int) y);
 	unsigned int zz = expandBits((unsigned int) z);
-	return (xx << 2) + (yy << 1) + zz;
+	return (xx * 4) + (yy * 2) + zz;
+}
+
+__global__ void copyMortonCodes(Particle *particles, unsigned int *mortonCodes, int size) {
+	int t_x = threadIdx.x;
+	int b_x = blockIdx.x;
+	int in_x = b_x * blockDim.x + t_x;
+
+	if (in_x < size) {
+		mortonCodes[in_x] = morton3D(&particles[in_x]);
+	}
 }
 
 int leadingZeros(unsigned int n) {
@@ -398,21 +463,30 @@ int findSplit(unsigned int *sortedMortonCodes, int first, int last) {
 }
 
 // BVH generation adapted from the above link
-BVHNode* generateBVH(unsigned int *sortedMortonCodes, Particle *sortedParticles, int first, int last) {
+BVHNode generateBVH(unsigned int *sortedMortonCodes, Particle *particles, int *sortedParticleIdxs, int first, int last, int &numNodes, thrust::host_vector<BVHNode> &nodes) {
+	numNodes++;
+
 	// Base case: create a leaf node
 	if (first == last) {
-		return BVHNode::leafNode(&sortedParticles[first]);
+		BVHNode node = BVHNode::leafNode(&particles[sortedParticleIdxs[first]]);
+
+		nodes.push_back(node);
+		return node;
 	}
 
 	// Find the point to split Morton codes for subtrees
 	int splitIdx = findSplit(sortedMortonCodes, first, last);
 
 	// Recursively generate subtrees for the split ranges
-	BVHNode* left = generateBVH(sortedMortonCodes, sortedParticles, first, splitIdx);
-	BVHNode* right = generateBVH(sortedMortonCodes, sortedParticles, splitIdx + 1, last);
+	BVHNode left = generateBVH(sortedMortonCodes, particles, sortedParticleIdxs, first, splitIdx, numNodes, nodes);
+	int leftIdx = nodes.size() - 1;
+	BVHNode right = generateBVH(sortedMortonCodes, particles, sortedParticleIdxs, splitIdx + 1, last, numNodes, nodes);
+	int rightIdx = nodes.size() - 1;
 
 	// Node contains union of left and right bounding boxes
-	return new BVHNode(left->boundingBox.aabbUnion(right->boundingBox), left, right);
+	BVHNode node(left.boundingBox.aabbUnion(right.boundingBox), leftIdx, rightIdx);
+	nodes.push_back(node);
+	return node;
 }
 
 // The following 2 functions taken from the cuda samples
@@ -424,29 +498,81 @@ void computeGridSize(int n, int blockSize, int &numBlocks, int &numThreads) {
 	numThreads = min(blockSize, n);
 	numBlocks = iDivUp(n, numThreads);
 }
-
+// no I don't
 void cuda_init(int numParticles) {
+	mortonCodes = (unsigned int*)malloc(sizeof(unsigned int) * numParticles);
+
 	// Initialise device memory for particles
 	cudaMalloc((void**) &d_particles, sizeof(Particle) * numParticles);
 	cudaMalloc((void**) &d_particles_out, sizeof(Particle) * numParticles);
+	cudaMalloc((void**) &d_forces, sizeof(DeviceVec) * numParticles);
+	cudaMalloc((void**) &d_particleIdxs, sizeof(int) * numParticles);
+	cudaMalloc((void**) &d_morton_codes, sizeof(unsigned int) * numParticles);
 
 	computeGridSize(numParticles, 256, gridSize, blockSize);
-
-	unsigned int codes[] = { 19 };
-	int split = findSplit(codes, 0, 0);
-
-	printf("Split: %d\n", split);
 }
 
 void particles_update(Particle *particles, int particlesSize) {
 	// copy host memory to device
-	cudaMemcpy(d_particles, particles, sizeof(Particle) * particlesSize,
-			cudaMemcpyHostToDevice);
+	cudaMemcpy(d_particles, particles, sizeof(Particle) * particlesSize, cudaMemcpyHostToDevice);
 
-	moveParticles<<<gridSize, blockSize>>>(d_particles, d_particles_out,
-			particlesSize);
+	int *particleIdxs = (int*)malloc(sizeof(int) * particlesSize);
+	for (int i = 0; i < particlesSize; i++) {
+		particleIdxs[i] = i;
+	}
+
+	cudaMemcpy(d_particleIdxs, particleIdxs, sizeof(int) * particlesSize, cudaMemcpyHostToDevice);
+
+	copyMortonCodes<<<gridSize, blockSize>>>(d_particles, d_morton_codes, particlesSize);
+	cudaMemcpy(mortonCodes, d_morton_codes, sizeof(unsigned int) * particlesSize, cudaMemcpyDeviceToHost);
+
+	// Sort Particles by their Morton codes
+	thrust::sort_by_key(mortonCodes, mortonCodes + particlesSize, particleIdxs);
+
+//	for (int i = 0; i < particlesSize; i++) {
+//		printf("%u, ", mortonCodes[i]);
+//	}
+//	printf("\n\n\n");
 
 	// copy result from device to host
-	cudaMemcpy(particles, d_particles_out, sizeof(Particle) * particlesSize,
-			cudaMemcpyDeviceToHost);
+	cudaMemcpy(particleIdxs, d_particleIdxs, sizeof(int) * particlesSize, cudaMemcpyDeviceToHost);
+
+//	printf("Copied. Generating BVH...\n");
+
+	// Generate the BVH
+	numBVHNodes = 0;
+	BVHNode rootNode = generateBVH(mortonCodes, particles, particleIdxs, 0, particlesSize - 1, numBVHNodes, nodes);
+
+//	printf("Generated.\n");
+
+	free (particleIdxs);
+
+	int nodeIndex = nodes.size() - 1;
+//	// Find the index of the root
+//	for (int i = 0; i < numBVHNodes; i++) {
+//		if (rootNode == nodes[i]) {
+//			nodeIndex = i;
+//			break;
+//		}
+//	}
+
+//	printf("Nodes: %d, index: %d\n", numBVHNodes, nodeIndex);
+
+	cudaMalloc((void**) &d_nodes, sizeof(BVHNode) * numBVHNodes);
+
+	cudaMemcpy(d_nodes, thrust::raw_pointer_cast(&nodes[0]), sizeof(BVHNode) * numBVHNodes, cudaMemcpyHostToDevice);
+
+//	printf("Copied. Moving...\n");
+
+	moveParticles<<<gridSize, blockSize>>>(nodeIndex, d_nodes, d_particles, d_particles_out, particlesSize, d_forces);
+//	moveParticles<<<gridSize, blockSize>>>(d_particles, d_particles_out, particlesSize);
+
+	cudaError_t err = cudaGetLastError();
+	if (err != cudaSuccess)
+	    printf("Error: %s\n", cudaGetErrorString(err));
+
+	// copy result from device to host
+	cudaMemcpy(particles, d_particles_out, sizeof(Particle) * particlesSize, cudaMemcpyDeviceToHost);
+
+//	cudaFree(d_nodes);
 }
