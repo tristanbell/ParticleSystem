@@ -3,7 +3,7 @@
 
 #include "particle.h"
 
-void cuda_init(int numParticles);
+void cuda_init(Particle *particles, int numParticles);
 void particles_update(Particle *particles, int particlesSize);
 
 typedef struct CollisionList {

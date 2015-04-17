@@ -256,14 +256,7 @@ static BVHNode *d_nodes;
 static int numBVHNodes;
 
 __device__ bool particlesCollide(Particle *p1, Particle *p2) {
-	// #if __CUDA_ARCH__ >= 200
-	// 	printf("particlesCollide() called!\n");
-	// 	printf("p1.position.x: %.4f,p1.position.y: %.4f, p1.position.z: %.4f\n", p1->position.x, p1->position.y, p1->position.z);
-	// 	printf("p2.position.x: %.4f,p2.position.y: %.4f, p2.position.z: %.4f\n", p2->position.x, p2->position.y, p2->position.z);
-	// #endif
-
-	DeviceVec collideVec = DeviceVec(&(p2->position))
-			- DeviceVec(&(p1->position));
+	DeviceVec collideVec = DeviceVec(&(p2->position)) - DeviceVec(&(p1->position));
 
 	float radiuses = p1->radius + p2->radius;
 	float collideDistSq = radiuses * radiuses;
@@ -274,8 +267,11 @@ __device__ bool particlesCollide(Particle *p1, Particle *p2) {
 __device__ void collide(Particle *p1, Particle *p2, DeviceVec *force) {
 	DeviceVec posA(&p1->position);
 	DeviceVec posB(&p2->position);
+	DeviceVec velA(&p1->velocity);
+	DeviceVec velB(&p2->velocity);
 
 	DeviceVec relPos = posB - posA;
+    DeviceVec relVel = velB - velA;
 
 	float dist = relPos.length();
 	float collideDist = p1->radius + p2->radius;
@@ -283,124 +279,75 @@ __device__ void collide(Particle *p1, Particle *p2, DeviceVec *force) {
 	DeviceVec norm = relPos.normalised();
 
 	// spring force
-	*force = *force + norm * -0.5 * (collideDist - dist);
+	*force = *force - norm * 0.5f * (collideDist - dist);
+	// damping force
+    *force = *force + relVel * 0.02f;
 }
 
 __device__ void traverse( BVHNode node, BVHNode *nodes, AABB& queryAABB, Particle *particles, int particleIdx, DeviceVec* forces )
 {
-	// Bounding box overlaps the query => process node.
 	if (node.boundingBox.intersects(&queryAABB))
 	{
 		Particle* particle = &particles[particleIdx];
 		// Leaf node => resolve collision.
 		if (node.isLeaf()) {
-			if(particleIdx != node.particleIdx){
-				if(particlesCollide(particle, &particles[node.particleIdx])){
-					collide(particle, &particles[node.particleIdx], &forces[particleIdx]);
-
-					// #if __CUDA_ARCH__ >= 200
-					// 	if (particleIdx == 2){
-					// 		printf("particlesCollide(particle, node.particle)\n");
-					// 	}
-					// #endif
-				}
+			if (particleIdx != node.particleIdx && particlesCollide(particle, &particles[node.particleIdx])){
+				collide(particle, &particles[node.particleIdx], &forces[particleIdx]);
 			}
-
-			// #if __CUDA_ARCH__ >= 200
-			// if (particleIdx == 2){
-			// 	printf("[x: %.4f, y: %.4f, z: %.4f] ", node.boundingBox.centre.x, node.boundingBox.centre.y, node.boundingBox.centre.z);
-			// 	printf("Call finished.\n");
-			// }
-			// #endif
 		}
 
-		// Internal node => recurse to children.
 		else
 		{
 			if (node.hasLeftChild()) {
-				// #if __CUDA_ARCH__ >= 200
-				// if (particleIdx == 2){
-				// 	printf("[x: %.4f, y: %.4f, z: %.4f] ", node.boundingBox.centre.x, node.boundingBox.centre.y, node.boundingBox.centre.z);
-				// 	printf("Traversing left child: #%d \n", node.leftChildIdx);
-				// }
-				// #endif
 				BVHNode childL = nodes[node.leftChildIdx];
 				traverse(childL, nodes, queryAABB, particles, particleIdx, forces);
-				// #if __CUDA_ARCH__ >= 200
-				// if (particleIdx == 2)
-				// 	printf("[x: %.4f, y: %.4f, z: %.4f] ", node.boundingBox.centre.x, node.boundingBox.centre.y, node.boundingBox.centre.z);
-				// 	printf("Left child traversed.\n");
-				// #endif
 			}
 			if (node.hasRightChild()) {
-				// #if __CUDA_ARCH__ >= 200
-				// if (particleIdx == 2){
-				// 	printf("[x: %.4f, y: %.4f, z: %.4f] ", node.boundingBox.centre.x, node.boundingBox.centre.y, node.boundingBox.centre.z);
-				// 	printf("Traversing right child: #%d \n", node.rightChildIdx);
-				// }
-				// #endif
 				BVHNode childR = nodes[node.rightChildIdx];
 				traverse(childR, nodes, queryAABB, particles, particleIdx, forces);
-				// #if __CUDA_ARCH__ >= 200
-				// if (particleIdx == 2)
-				// 	printf("[x: %.4f, y: %.4f, z: %.4f] ", node.boundingBox.centre.x, node.boundingBox.centre.y, node.boundingBox.centre.z);
-				// 	printf("Right child traversed.\n");
-				// #endif
 			}
 		}
 	}
-	// #if __CUDA_ARCH__ >= 200
-	// if (particleIdx == 2){
-	// 	printf("[x: %.4f, y: %.4f, z: %.4f] ", node.boundingBox.centre.x, node.boundingBox.centre.y, node.boundingBox.centre.z);
-	// 	printf("Call finished.\n");
-	// }
-	// #endif
 }
 
 __device__ void traverseIterative( BVHNode *nodes, BVHNode root, AABB& queryAABB, Particle *particles, int particleIdx, DeviceVec* forces )
 {
 	Particle* particle = &particles[particleIdx];
-    // Allocate traversal stack from thread-local memory,
-    // and push NULL to indicate that there are no postponed nodes.
+
     BVHNode* stack[64];
     BVHNode** stackPtr = stack;
-    *stackPtr++ = NULL; // push
+    *stackPtr++ = NULL;
 
-    // Traverse nodes starting from the root.
     BVHNode* node = &root;
     do
     {
-        // Check each child node for overlap.
     	BVHNode *childL = node->hasLeftChild() ? &nodes[node->leftChildIdx] : NULL;
     	BVHNode *childR = node->hasRightChild() ? &nodes[node->rightChildIdx] : NULL;
 
         bool overlapL = childL && childL->boundingBox.intersects(&queryAABB) && particleIdx != childL->particleIdx;
         bool overlapR = childR && childR->boundingBox.intersects(&queryAABB) && particleIdx != childR->particleIdx;
 
-        // Query overlaps a leaf node => report collision.
         if (overlapL && childL->isLeaf())
         	collide(particle, &particles[childL->particleIdx], &forces[particleIdx]);
         if (overlapR && childR->isLeaf())
         	collide(particle, &particles[childR->particleIdx], &forces[particleIdx]);
 
-        // Query overlaps an internal node => traverse.
         bool traverseL = (overlapL && !childL->isLeaf());
         bool traverseR = (overlapR && !childR->isLeaf());
 
         if (!traverseL && !traverseR)
-            node = *--stackPtr; // pop
+            node = *--stackPtr;
         else
         {
             node = (traverseL) ? childL : childR;
             if (traverseL && traverseR)
-                *stackPtr++ = childR; // push
+                *stackPtr++ = childR;
         }
     }
     while (node != NULL);
 }
 
 __global__ void moveParticles(int bvhRootIdx, BVHNode *nodes, Particle *particles, Particle *out, int size, DeviceVec *forces) {
-//__global__ void moveParticles(Particle *particles, Particle *out, int size) {
 	int t_x = threadIdx.x;
 	int b_x = blockIdx.x;
 	int in_x = b_x * blockDim.x + t_x;
@@ -411,34 +358,29 @@ __global__ void moveParticles(int bvhRootIdx, BVHNode *nodes, Particle *particle
 		DeviceVec newPosD(&thisParticle.position);
 		DeviceVec velD(&thisParticle.velocity);
 
-		// Initialise forces for this particle
+		// Initialise force for this particle
 		forces[in_x] = DeviceVec(0, 0, 0);
 
 		AABB query = AABB::fromParticle(&thisParticle);
 		traverseIterative( nodes, nodes[bvhRootIdx], query, particles, in_x, forces);
 
-		// #if __CUDA_ARCH__ >= 200
-		// 	// printf("x: %f.4, y: %f.4, z: %f.4", forces[in_x].x, forces[in_x].y, forces[in_x].z);
-		// 	printf("Traversed!\n");
-		// #endif
-		
 		__syncthreads();
 
 		velD = velD + forces[in_x];
 
-		// DeviceVec force(0, 0, 0);
-
-		// for (int i = 0; i < size; i++) {
-		// 	if (i != in_x) { // Don't consider ourselves
-		// 		Particle other = particles[i];
-
-		// 		if (particlesCollide(&thisParticle, &other)) {
-		// 			collide(&thisParticle, &other, force);
-		// 		}
-		// 	}
-		// }
-
-		// velD = velD + force;
+//		 DeviceVec force(0, 0, 0);
+//
+//		 for (int i = 0; i < size; i++) {
+//		 	if (i != in_x) { // Don't consider ourselves
+//		 		Particle other = particles[i];
+//
+//		 		if (particlesCollide(&thisParticle, &other)) {
+//		 			collide(&thisParticle, &other, &force);
+//		 		}
+//		 	}
+//		 }
+//
+//		 velD = velD + force;
 
 		// Calculate our new desired position
 		newPosD = newPosD + velD;
@@ -474,19 +416,14 @@ __global__ void moveParticles(int bvhRootIdx, BVHNode *nodes, Particle *particle
 			velD = velD.reflection(&normalD);
 		}
 
-		// Move this particle
-		out[in_x] = thisParticle;
-
-//		printf("Old: %f, %f, %f\n", thisParticle.position.x, thisParticle.position.y, thisParticle.position.z);
-
 		// Calculate the position after movement
 		newPosD = DeviceVec(&thisParticle.position) + velD;
 
+		newPosD.toVec3(&thisParticle.position);
+		velD.toVec3(&thisParticle.velocity);
 
-//		printf("New: %f, %f, %f\n\n", newPosD.x, newPosD.y, newPosD.z);
-
-		newPosD.toVec3(&out[in_x].position);
-		velD.toVec3(&out[in_x].velocity);
+		// Move this particle
+		out[in_x] = thisParticle;
 	}
 }
 
@@ -653,8 +590,8 @@ void computeGridSize(int n, int blockSize, int &numBlocks, int &numThreads) {
 	numThreads = min(blockSize, n);
 	numBlocks = iDivUp(n, numThreads);
 }
-// no I don't
-void cuda_init(int numParticles) {
+
+void cuda_init(Particle *particles, int numParticles) {
 	mortonCodes = (unsigned int*)malloc(sizeof(unsigned int) * numParticles);
 
 	// Initialise device memory for particles
@@ -663,6 +600,9 @@ void cuda_init(int numParticles) {
 	cudaMalloc((void**) &d_forces, sizeof(DeviceVec) * numParticles);
 	// cudaMalloc((void**) &d_particleIdxs, sizeof(int) * numParticles);
 	cudaMalloc((void**) &d_morton_codes, sizeof(unsigned int) * numParticles);
+
+	// Copy over particles
+//	cudaMemcpy(d_particles, particles, sizeof(Particle) * numParticles, cudaMemcpyHostToDevice);
 
 	cudaError_t err = cudaGetLastError();
 	if (err != cudaSuccess)
@@ -675,9 +615,7 @@ static int count = 0;
 
 void particles_update(Particle *particles, int particlesSize) {
 	// copy host memory to device
-	cudaError_t err = cudaMemcpy(d_particles, particles, sizeof(Particle) * particlesSize, cudaMemcpyHostToDevice);
-//	if (err != cudaSuccess)
-//		    printf("[%d] Copy Particles Error: %s\n", count, cudaGetErrorString(err));
+	cudaMemcpy(d_particles, particles, sizeof(Particle) * particlesSize, cudaMemcpyHostToDevice);
 
 	int *particleIdxs = (int*)malloc(sizeof(int) * particlesSize);
 	for (int i = 0; i < particlesSize; i++) {
@@ -688,13 +626,9 @@ void particles_update(Particle *particles, int particlesSize) {
 
 	copyMortonCodes<<<gridSize, blockSize>>>(d_particles, d_morton_codes, particlesSize);
 
-	cudaThreadSynchronize();
+//	cudaThreadSynchronize();
 
-	err = cudaGetLastError();
-	if (err != cudaSuccess)
-	    printf("[%d] Copy Codes Error: %s\n", count, cudaGetErrorString(err));
-
-	cudaMemcpy(mortonCodes, d_morton_codes, sizeof(unsigned int) * particlesSize, cudaMemcpyDeviceToHost);
+	cudaError_t err = cudaMemcpy(mortonCodes, d_morton_codes, sizeof(unsigned int) * particlesSize, cudaMemcpyDeviceToHost);
 
 	// Sort Particles by their Morton codes
 	thrust::sort_by_key(mortonCodes, mortonCodes + particlesSize, particleIdxs);
@@ -710,6 +644,7 @@ void particles_update(Particle *particles, int particlesSize) {
 	numBVHNodes = 0;
 	nodes.clear();
 	BVHNode rootNode = generateBVH(mortonCodes, particles, particleIdxs, 0, particlesSize - 1, numBVHNodes, nodes);
+	int rootIndex = nodes.size() - 1;
 
 	// printf("id_x: %.4f, id_y: %.4f, idz_: %.4f\n", rootNode.boundingBox.centre.x, rootNode.boundingBox.centre.y, rootNode.boundingBox.centre.z);
 	// for (int i = 0; i < numBVHNodes; ++i)
@@ -724,16 +659,7 @@ void particles_update(Particle *particles, int particlesSize) {
 
 	free (particleIdxs);
 
-	int nodeIndex = nodes.size() - 1;
-//	// Find the index of the root
-//	for (int i = 0; i < numBVHNodes; i++) {
-//		if (rootNode == nodes[i]) {
-//			nodeIndex = i;
-//			break;
-//		}
-//	}
-
-//	printf("Nodes: %d, index: %d\n", numBVHNodes, nodeIndex);
+//	printf("Nodes: %d\n", numBVHNodes);
 
 	err = cudaMalloc((void**) &d_nodes, sizeof(BVHNode) * numBVHNodes);
 	if (err != cudaSuccess)
@@ -745,17 +671,28 @@ void particles_update(Particle *particles, int particlesSize) {
 
 //	printf("Copied. Moving...\n");
 
-	moveParticles<<<gridSize, blockSize>>>(nodeIndex, d_nodes, d_particles, d_particles_out, particlesSize, d_forces);
-//	moveParticles<<<gridSize, blockSize>>>(d_particles, d_particles_out, particlesSize);
+//	cudaEvent_t start, stop;
+//	cudaEventCreate(&start);
+//	cudaEventCreate(&stop);
+//
+//	cudaEventRecord(start);
+	moveParticles<<<gridSize, blockSize>>>(rootIndex, d_nodes, d_particles, d_particles_out, particlesSize, d_forces);
+	cudaMemcpy(particles, d_particles_out, sizeof(Particle) * particlesSize, cudaMemcpyDeviceToHost);
+//	cudaEventRecord(stop);
+//
+//	cudaEventSynchronize(stop);
+//	float milliseconds = 0;
+//	cudaEventElapsedTime(&milliseconds, start, stop);
+//
+//	printf("Time: %fms\n", milliseconds);
 
-	cudaThreadSynchronize();
+//	cudaThreadSynchronize();
 
-	err = cudaGetLastError();
-	if (err != cudaSuccess)
-	    printf("[%d] Move Particles Error: %s\n", count++, cudaGetErrorString(err));
+//	err = cudaGetLastError();
+//	if (err != cudaSuccess)
+//	    printf("[%d] Move Particles Error: %s\n", count++, cudaGetErrorString(err));
 
 	// copy result from device to host
-	cudaMemcpy(particles, d_particles_out, sizeof(Particle) * particlesSize, cudaMemcpyDeviceToHost);
 
 	cudaFree(d_nodes);
 }

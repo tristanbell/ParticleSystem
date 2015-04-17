@@ -119,7 +119,7 @@ ParticleManager::ParticleManager(int numParticles, Vec3 boxDimensions) {
 		}
 	}
 
-	cuda_init(numParticles);
+	cuda_init(&mParticles[0], numParticles);
 
 	// Compile shaders
 	mProgram = compileProgram(vertexShader, spherePixelShader);
