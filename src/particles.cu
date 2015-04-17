@@ -243,6 +243,14 @@ struct BVHNode {
 	__device__ bool isLeaf() {
 		return leftChildIdx == -1 && rightChildIdx == -1;
 	}
+
+	__device__ bool hasLeftChild() {
+		return leftChildIdx != -1;
+	}
+
+	__device__ bool hasRightChild() {
+		return rightChildIdx != -1;
+	}
 };
 
 __device__ bool particlesCollide(Particle *p1, Particle *p2) {
@@ -270,22 +278,28 @@ __device__ void collide(Particle *p1, Particle *p2, DeviceVec *force) {
 	*force = *force + norm * -0.5 * (collideDist - dist);
 }
 
-__device__ void traverse( BVHNode node, BVHNode *nodeVec, AABB& queryAABB, Particle* particle, int particleIdx, DeviceVec* forces )
+__device__ void traverse( BVHNode node, BVHNode *nodes, AABB& queryAABB, Particle* particle, int particleIdx, DeviceVec* forces )
 {
 	// Bounding box overlaps the query => process node.
 	if (node.boundingBox.intersects(&queryAABB))
 	{
 		// Leaf node => resolve collision.
-		if (node.isLeaf())
+		if (node.isLeaf()) {
 			if(particlesCollide(particle, node.particle))
 				collide(particle, node.particle, &forces[particleIdx]);
+		}
+
 		// Internal node => recurse to children.
 		else
 		{
-			BVHNode childL = nodeVec[node.leftChildIdx];
-			BVHNode childR = nodeVec[node.rightChildIdx];
-			traverse(childL, nodeVec, queryAABB, particle, particleIdx, forces);
-			traverse(childR, nodeVec, queryAABB, particle, particleIdx, forces);
+			if (node.hasLeftChild()) {
+				BVHNode childL = nodes[node.leftChildIdx];
+				traverse(childL, nodes, queryAABB, particle, particleIdx, forces);
+			}
+			if (node.hasRightChild()) {
+				BVHNode childR = nodes[node.rightChildIdx];
+				traverse(childR, nodes, queryAABB, particle, particleIdx, forces);
+			}
 		}
 	}
 }
@@ -299,27 +313,32 @@ __global__ void moveParticles(int bvhRootIdx, BVHNode *nodes, Particle *particle
 	if (in_x < size) {
 		Particle thisParticle = particles[in_x];
 
-//		AABB query = AABB::fromParticle(&thisParticle);
-//		traverse(nodes[bvhRootIdx], nodes, query, &thisParticle, in_x, forces);
-
 		DeviceVec newPosD(&thisParticle.position);
 		DeviceVec velD(&thisParticle.velocity);
 
-//		velD = velD + forces[in_x];
+		// Initialise forces for this particle
+		forces[in_x] = DeviceVec(0, 0, 0);
 
-		DeviceVec force(0, 0, 0);
+		AABB query = AABB::fromParticle(&thisParticle);
+		traverse(nodes[bvhRootIdx], nodes, query, &thisParticle, in_x, forces);
 
-		for (int i = 0; i < size; i++) {
-			if (i != in_x) { // Don't consider ourselves
-				Particle other = particles[i];
+		__syncthreads();
 
-				if (particlesCollide(&thisParticle, &other)) {
-					collide(&thisParticle, &other, &force);
-				}
-			}
-		}
+		velD = velD + forces[in_x];
 
-		velD = velD + force;
+//		DeviceVec force(0, 0, 0);
+//
+//		for (int i = 0; i < size; i++) {
+//			if (i != in_x) { // Don't consider ourselves
+//				Particle other = particles[i];
+//
+//				if (particlesCollide(&thisParticle, &other)) {
+//					collide(&thisParticle, &other, &force);
+//				}
+//			}
+//		}
+//
+//		velD = velD + force;
 
 		// Calculate our new desired position
 		newPosD = newPosD + velD;
@@ -455,11 +474,47 @@ int splitSearch(unsigned int *sortedMortonCodes, unsigned int currentMSB, unsign
 }
 
 int findSplit(unsigned int *sortedMortonCodes, int first, int last) {
-	// Generate an initial guess for most significant differing bit
-	int msb = leadingZeros(sortedMortonCodes[first] ^ sortedMortonCodes[last]);
-	unsigned int currentBest = first;
+//	// Generate an initial guess for most significant differing bit
+//	int msb = leadingZeros(sortedMortonCodes[first] ^ sortedMortonCodes[last]);
+//	unsigned int currentBest = first;
+//
+//	return splitSearch(sortedMortonCodes, msb, currentBest, first, last);
 
-	return splitSearch(sortedMortonCodes, msb, currentBest, first, last);
+	// Identical Morton codes => split the range in the middle.
+	unsigned int firstCode = sortedMortonCodes[first];
+	unsigned int lastCode = sortedMortonCodes[last];
+
+	if (firstCode == lastCode)
+		return (first + last) >> 1;
+
+	// Calculate the number of highest bits that are the same
+	// for all objects, using the count-leading-zeros intrinsic.
+
+	int commonPrefix = leadingZeros(firstCode ^ lastCode);
+
+	// Use binary search to find where the next bit differs.
+	// Specifically, we are looking for the highest object that
+	// shares more than commonPrefix bits with the first one.
+
+	int split = first; // initial guess
+	int step = last - first;
+
+	do
+	{
+		step = (step + 1) >> 1; // exponential decrease
+		int newSplit = split + step; // proposed new position
+
+		if (newSplit < last)
+		{
+			unsigned int splitCode = sortedMortonCodes[newSplit];
+			int splitPrefix = leadingZeros(firstCode ^ splitCode);
+			if (splitPrefix > commonPrefix)
+				split = newSplit; // accept proposal
+		}
+	}
+	while (step > 1);
+
+	return split;
 }
 
 // BVH generation adapted from the above link
@@ -509,21 +564,36 @@ void cuda_init(int numParticles) {
 	cudaMalloc((void**) &d_particleIdxs, sizeof(int) * numParticles);
 	cudaMalloc((void**) &d_morton_codes, sizeof(unsigned int) * numParticles);
 
+	cudaError_t err = cudaGetLastError();
+	if (err != cudaSuccess)
+	    printf("Memory Allocation Error: %s\n", cudaGetErrorString(err));
+
 	computeGridSize(numParticles, 256, gridSize, blockSize);
 }
 
+//static int count = 0;
+
 void particles_update(Particle *particles, int particlesSize) {
 	// copy host memory to device
-	cudaMemcpy(d_particles, particles, sizeof(Particle) * particlesSize, cudaMemcpyHostToDevice);
+	cudaError_t err = cudaMemcpy(d_particles, particles, sizeof(Particle) * particlesSize, cudaMemcpyHostToDevice);
+//	if (err != cudaSuccess)
+//		    printf("[%d] Copy Particles Error: %s\n", count, cudaGetErrorString(err));
 
 	int *particleIdxs = (int*)malloc(sizeof(int) * particlesSize);
 	for (int i = 0; i < particlesSize; i++) {
 		particleIdxs[i] = i;
 	}
 
-	cudaMemcpy(d_particleIdxs, particleIdxs, sizeof(int) * particlesSize, cudaMemcpyHostToDevice);
+//	cudaMemcpy(d_particleIdxs, particleIdxs, sizeof(int) * particlesSize, cudaMemcpyHostToDevice);
 
 	copyMortonCodes<<<gridSize, blockSize>>>(d_particles, d_morton_codes, particlesSize);
+
+	cudaThreadSynchronize();
+
+//	err = cudaGetLastError();
+//	if (err != cudaSuccess)
+//	    printf("[%d] Copy Codes Error: %s\n", count, cudaGetErrorString(err));
+
 	cudaMemcpy(mortonCodes, d_morton_codes, sizeof(unsigned int) * particlesSize, cudaMemcpyDeviceToHost);
 
 	// Sort Particles by their Morton codes
@@ -533,9 +603,6 @@ void particles_update(Particle *particles, int particlesSize) {
 //		printf("%u, ", mortonCodes[i]);
 //	}
 //	printf("\n\n\n");
-
-	// copy result from device to host
-	cudaMemcpy(particleIdxs, d_particleIdxs, sizeof(int) * particlesSize, cudaMemcpyDeviceToHost);
 
 //	printf("Copied. Generating BVH...\n");
 
@@ -558,21 +625,27 @@ void particles_update(Particle *particles, int particlesSize) {
 
 //	printf("Nodes: %d, index: %d\n", numBVHNodes, nodeIndex);
 
-	cudaMalloc((void**) &d_nodes, sizeof(BVHNode) * numBVHNodes);
+	err = cudaMalloc((void**) &d_nodes, sizeof(BVHNode) * numBVHNodes);
+//	if (err != cudaSuccess)
+//		printf("[%d] Alloc Nodes Error: %s\n", count, cudaGetErrorString(err));
 
-	cudaMemcpy(d_nodes, thrust::raw_pointer_cast(&nodes[0]), sizeof(BVHNode) * numBVHNodes, cudaMemcpyHostToDevice);
+	err = cudaMemcpy(d_nodes, thrust::raw_pointer_cast(&nodes[0]), sizeof(BVHNode) * nodes.size(), cudaMemcpyHostToDevice);
+//	if (err != cudaSuccess)
+//		printf("[%d] Copy Nodes Error: %s\n", count, cudaGetErrorString(err));
 
 //	printf("Copied. Moving...\n");
 
 	moveParticles<<<gridSize, blockSize>>>(nodeIndex, d_nodes, d_particles, d_particles_out, particlesSize, d_forces);
 //	moveParticles<<<gridSize, blockSize>>>(d_particles, d_particles_out, particlesSize);
 
-	cudaError_t err = cudaGetLastError();
-	if (err != cudaSuccess)
-	    printf("Error: %s\n", cudaGetErrorString(err));
+	cudaThreadSynchronize();
+
+//	err = cudaGetLastError();
+//	if (err != cudaSuccess)
+//	    printf("[%d] Move Particles Error: %s\n", count++, cudaGetErrorString(err));
 
 	// copy result from device to host
 	cudaMemcpy(particles, d_particles_out, sizeof(Particle) * particlesSize, cudaMemcpyDeviceToHost);
 
-//	cudaFree(d_nodes);
+	cudaFree(d_nodes);
 }
