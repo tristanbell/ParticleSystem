@@ -286,11 +286,12 @@ __device__ void collide(Particle *p1, Particle *p2, DeviceVec *force) {
 	*force = *force + norm * -0.5 * (collideDist - dist);
 }
 
-__device__ void traverse( BVHNode node, BVHNode *nodes, AABB& queryAABB, Particle *particles, Particle* particle, int particleIdx, DeviceVec* forces )
+__device__ void traverse( BVHNode node, BVHNode *nodes, AABB& queryAABB, Particle *particles, int particleIdx, DeviceVec* forces )
 {
 	// Bounding box overlaps the query => process node.
 	if (node.boundingBox.intersects(&queryAABB))
 	{
+		Particle* particle = &particles[particleIdx];
 		// Leaf node => resolve collision.
 		if (node.isLeaf()) {
 			if(particleIdx != node.particleIdx){
@@ -324,7 +325,7 @@ __device__ void traverse( BVHNode node, BVHNode *nodes, AABB& queryAABB, Particl
 				// }
 				// #endif
 				BVHNode childL = nodes[node.leftChildIdx];
-				traverse(childL, nodes, queryAABB, particles, particle, particleIdx, forces);
+				traverse(childL, nodes, queryAABB, particles, particleIdx, forces);
 				// #if __CUDA_ARCH__ >= 200
 				// if (particleIdx == 2)
 				// 	printf("[x: %.4f, y: %.4f, z: %.4f] ", node.boundingBox.centre.x, node.boundingBox.centre.y, node.boundingBox.centre.z);
@@ -339,7 +340,7 @@ __device__ void traverse( BVHNode node, BVHNode *nodes, AABB& queryAABB, Particl
 				// }
 				// #endif
 				BVHNode childR = nodes[node.rightChildIdx];
-				traverse(childR, nodes, queryAABB, particles, particle, particleIdx, forces);
+				traverse(childR, nodes, queryAABB, particles, particleIdx, forces);
 				// #if __CUDA_ARCH__ >= 200
 				// if (particleIdx == 2)
 				// 	printf("[x: %.4f, y: %.4f, z: %.4f] ", node.boundingBox.centre.x, node.boundingBox.centre.y, node.boundingBox.centre.z);
@@ -354,6 +355,48 @@ __device__ void traverse( BVHNode node, BVHNode *nodes, AABB& queryAABB, Particl
 	// 	printf("Call finished.\n");
 	// }
 	// #endif
+}
+
+__device__ void traverseIterative( BVHNode *nodes, BVHNode root, AABB& queryAABB, Particle *particles, int particleIdx, DeviceVec* forces )
+{
+	Particle* particle = &particles[particleIdx];
+    // Allocate traversal stack from thread-local memory,
+    // and push NULL to indicate that there are no postponed nodes.
+    BVHNode* stack[64];
+    BVHNode** stackPtr = stack;
+    *stackPtr++ = NULL; // push
+
+    // Traverse nodes starting from the root.
+    BVHNode* node = &root;
+    do
+    {
+        // Check each child node for overlap.
+    	BVHNode *childL = node->hasLeftChild() ? &nodes[node->leftChildIdx] : NULL;
+    	BVHNode *childR = node->hasRightChild() ? &nodes[node->rightChildIdx] : NULL;
+
+        bool overlapL = childL && childL->boundingBox.intersects(&queryAABB) && particleIdx != childL->particleIdx;
+        bool overlapR = childR && childR->boundingBox.intersects(&queryAABB) && particleIdx != childR->particleIdx;
+
+        // Query overlaps a leaf node => report collision.
+        if (overlapL && childL->isLeaf())
+        	collide(particle, &particles[childL->particleIdx], &forces[particleIdx]);
+        if (overlapR && childR->isLeaf())
+        	collide(particle, &particles[childR->particleIdx], &forces[particleIdx]);
+
+        // Query overlaps an internal node => traverse.
+        bool traverseL = (overlapL && !childL->isLeaf());
+        bool traverseR = (overlapR && !childR->isLeaf());
+
+        if (!traverseL && !traverseR)
+            node = *--stackPtr; // pop
+        else
+        {
+            node = (traverseL) ? childL : childR;
+            if (traverseL && traverseR)
+                *stackPtr++ = childR; // push
+        }
+    }
+    while (node != NULL);
 }
 
 __global__ void moveParticles(int bvhRootIdx, BVHNode *nodes, Particle *particles, Particle *out, int size, DeviceVec *forces) {
@@ -372,7 +415,7 @@ __global__ void moveParticles(int bvhRootIdx, BVHNode *nodes, Particle *particle
 		forces[in_x] = DeviceVec(0, 0, 0);
 
 		AABB query = AABB::fromParticle(&thisParticle);
-		traverse(nodes[bvhRootIdx], nodes, query, particles, &thisParticle, in_x, forces);
+		traverseIterative( nodes, nodes[bvhRootIdx], query, particles, in_x, forces);
 
 		// #if __CUDA_ARCH__ >= 200
 		// 	// printf("x: %f.4, y: %f.4, z: %f.4", forces[in_x].x, forces[in_x].y, forces[in_x].z);
@@ -628,7 +671,7 @@ void cuda_init(int numParticles) {
 	computeGridSize(numParticles, 256, gridSize, blockSize);
 }
 
-// static int count = 0;
+static int count = 0;
 
 void particles_update(Particle *particles, int particlesSize) {
 	// copy host memory to device
@@ -647,9 +690,9 @@ void particles_update(Particle *particles, int particlesSize) {
 
 	cudaThreadSynchronize();
 
-//	err = cudaGetLastError();
-//	if (err != cudaSuccess)
-//	    printf("[%d] Copy Codes Error: %s\n", count, cudaGetErrorString(err));
+	err = cudaGetLastError();
+	if (err != cudaSuccess)
+	    printf("[%d] Copy Codes Error: %s\n", count, cudaGetErrorString(err));
 
 	cudaMemcpy(mortonCodes, d_morton_codes, sizeof(unsigned int) * particlesSize, cudaMemcpyDeviceToHost);
 
@@ -693,12 +736,12 @@ void particles_update(Particle *particles, int particlesSize) {
 //	printf("Nodes: %d, index: %d\n", numBVHNodes, nodeIndex);
 
 	err = cudaMalloc((void**) &d_nodes, sizeof(BVHNode) * numBVHNodes);
-//	if (err != cudaSuccess)
-//		printf("[%d] Alloc Nodes Error: %s\n", count, cudaGetErrorString(err));
+	if (err != cudaSuccess)
+		printf("[%d] Alloc Nodes Error: %s\n", count, cudaGetErrorString(err));
 
 	err = cudaMemcpy(d_nodes, thrust::raw_pointer_cast(&nodes[0]), sizeof(BVHNode) * nodes.size(), cudaMemcpyHostToDevice);
-//	if (err != cudaSuccess)
-//		printf("[%d] Copy Nodes Error: %s\n", count, cudaGetErrorString(err));
+	if (err != cudaSuccess)
+		printf("[%d] Copy Nodes Error: %s\n", count, cudaGetErrorString(err));
 
 //	printf("Copied. Moving...\n");
 
@@ -707,9 +750,9 @@ void particles_update(Particle *particles, int particlesSize) {
 
 	cudaThreadSynchronize();
 
-	// err = cudaGetLastError();
-	// if (err != cudaSuccess)
-	//     printf("[%d] Move Particles Error: %s\n", count++, cudaGetErrorString(err));
+	err = cudaGetLastError();
+	if (err != cudaSuccess)
+	    printf("[%d] Move Particles Error: %s\n", count++, cudaGetErrorString(err));
 
 	// copy result from device to host
 	cudaMemcpy(particles, d_particles_out, sizeof(Particle) * particlesSize, cudaMemcpyDeviceToHost);

@@ -17,7 +17,7 @@ include_directories(${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/include/GL)
 
 # Compilation flags
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
-set(CUDA_NVCC_FLAGS ${CUDA_NVCC_FLAGS};-arch sm_21)
+set(CUDA_NVCC_FLAGS ${CUDA_NVCC_FLAGS};-arch sm_21 -G -lineinfo)
 
 # Recurse into source directory
 add_subdirectory(src)
