@@ -14,8 +14,7 @@
 
 extern "C" {
 #include "util.h"
-}
-GLuint createVBO(GLuint size) {
+}GLuint createVBO(GLuint size) {
 	GLuint vbo;
 	glGenBuffers(1, &vbo);
 	glBindBuffer(GL_ARRAY_BUFFER, vbo);
@@ -59,7 +58,7 @@ GLuint compileProgram(const char *vsource, const char *fsource) {
 ParticleManager::ParticleManager(int numParticles, Vec3 boxDimensions) {
 	srand (time(NULL));
 
-	float maxX = boxDimensions.x / 2;
+float	maxX = boxDimensions.x / 2;
 	float minX = -maxX;
 	float maxY = boxDimensions.y / 2;
 	float minY = -maxY;
@@ -102,18 +101,31 @@ ParticleManager::ParticleManager(int numParticles, Vec3 boxDimensions) {
 	}
 	else {
 		for (int i = 0; i < numParticles; i++) {
-			float xPos = randomFloat(minX, maxX);
-			float yPos = randomFloat(minY, maxY);
-			float zPos = randomFloat(minZ, maxZ);
+			float xPos, yPos, zPos;
+			float xVel, yVel, zVel;
 
-			float xVel = randomFloat(-maxVel, maxVel);
-			float yVel = randomFloat(-maxVel, maxVel);
-			float zVel = randomFloat(-maxVel, maxVel);
+			if (i < numParticles / 2) {
+				xPos = -0.98f;
+				yPos = randomFloat(minY, maxY);
+				zPos = randomFloat(minZ, maxZ);
+
+				xVel = randomFloat(0.005f, maxVel);
+				yVel = 0;//randomFloat(-maxVel, maxVel);
+				zVel = 0;//randomFloat(-maxVel, maxVel);
+			}
+			else {
+				xPos = 0.98f;
+				yPos = randomFloat(minY, maxY);
+				zPos = randomFloat(minZ, maxZ);
+
+				xVel = randomFloat(-maxVel, 0.005f);
+				yVel = 0;//randomFloat(-maxVel, maxVel);
+				zVel = 0;//randomFloat(-maxVel, maxVel);
+			}
 
 			Vec3 pos(xPos, yPos, zPos);
 			Vec3 vel(xVel, yVel, zVel);
 
-//			float radius = randomFloat(minRadius, maxRadius);
 			Particle newParticle(pos, vel, radius);
 			mParticles.push_back(newParticle);
 		}
