@@ -540,22 +540,31 @@ int leadingZeros(unsigned int n) {
 	return numZeros;
 }
 
+/**
+ * Recursive method for finding the ideal place to split a series of Morton codes
+ * The ideal place is the furthest point at which there is the first difference in the most significant bit
+ */
 int splitSearch(unsigned int *sortedMortonCodes, unsigned int currentMSB, unsigned int currentBest, int first, int last) {
+	// find the midpoint of the indexes
 	int mid = first + ((last - first) + 1)/2;
-
+	// See how many leading values are the same between the Morton codes at the start and the midpoint
 	int msb = leadingZeros(sortedMortonCodes[0] ^ sortedMortonCodes[mid]);
 
-
+	// If you have only 1 Morton code
 	if (first == last) {
+		// If this is an improvement
 		if (msb > currentMSB)
+			// Set this to the current best value
 			currentBest = first;
-
+		// return whatever the current best is
 		return currentBest;
 	}
 
+	// If this is higher (the bit has already changed) search over the right hand values to see if you can go further but keeping mid as the current best
 	if (msb > currentMSB) {
 		return splitSearch(sortedMortonCodes, currentMSB, mid, mid + 1, last);
 	}
+	// otherwise too many bits have changed (gone too far) search to the left
 	else {
 		return splitSearch(sortedMortonCodes, currentMSB, currentBest, first, mid - 1);
 	}
@@ -605,7 +614,9 @@ int findSplit(unsigned int *sortedMortonCodes, int first, int last) {
 	return split;
 }
 
-// BVH generation adapted from the above link
+/**
+ * BVH generation adapted from the above link
+ */
 BVHNode generateBVH(unsigned int *sortedMortonCodes, Particle *particles, int *sortedParticleIdxs, int first, int last, int &numNodes, thrust::host_vector<BVHNode> &nodes) {
 	numNodes++;
 
@@ -632,16 +643,24 @@ BVHNode generateBVH(unsigned int *sortedMortonCodes, Particle *particles, int *s
 	return node;
 }
 
-// The following 2 functions taken from the cuda samples
+/*
+ * The following 2 functions taken from the cuda samples
+ */
 int iDivUp(int a, int b) {
 	return (a % b != 0) ? (a / b + 1) : (a / b);
 }
 
+/**
+ * Compute the ideal grid size for the number of particles that we have
+ */
 void computeGridSize(int n, int blockSize, int &numBlocks, int &numThreads) {
 	numThreads = min(blockSize, n);
 	numBlocks = iDivUp(n, numThreads);
 }
 
+/**
+ * Initialize CUDA - allocate memory, etc.
+ */
 void cuda_init(Particle *particles, int numParticles) {
 	mortonCodes = (unsigned int*)malloc(sizeof(unsigned int) * numParticles);
 
@@ -664,6 +683,9 @@ void cuda_init(Particle *particles, int numParticles) {
 
 static int count = 0;
 
+/**
+ * Update the particles - called
+ */
 void particles_update(Particle *particles, int particlesSize) {
 	// copy host memory to device
 	cudaMemcpy(d_particles, particles, sizeof(Particle) * particlesSize, cudaMemcpyHostToDevice);
@@ -722,22 +744,11 @@ void particles_update(Particle *particles, int particlesSize) {
 
 //	printf("Copied. Moving...\n");
 
-//	cudaEvent_t start, stop;
-//	cudaEventCreate(&start);
-//	cudaEventCreate(&stop);
-//
-//	cudaEventRecord(start);
+	// Kernel for calculating, and then moving the particles to, the new positions
 	moveParticles<<<gridSize, blockSize>>>(rootIndex, d_nodes, d_particles, d_particles_out, particlesSize, d_forces);
 	cudaMemcpy(particles, d_particles_out, sizeof(Particle) * particlesSize, cudaMemcpyDeviceToHost);
-//	cudaEventRecord(stop);
-//
-//	cudaEventSynchronize(stop);
-//	float milliseconds = 0;
-//	cudaEventElapsedTime(&milliseconds, start, stop);
-//
-//	printf("Time: %fms\n", milliseconds);
 
-//	cudaThreadSynchronize();
+	cudaThreadSynchronize();
 
 //	err = cudaGetLastError();
 //	if (err != cudaSuccess)
