@@ -719,15 +719,6 @@ void particles_update(Particle *particles, int particlesSize) {
 	BVHNode rootNode = generateBVH(mortonCodes, particles, particleIdxs, 0, particlesSize - 1, numBVHNodes, nodes);
 	int rootIndex = nodes.size() - 1;
 
-	// printf("id_x: %.4f, id_y: %.4f, idz_: %.4f\n", rootNode.boundingBox.centre.x, rootNode.boundingBox.centre.y, rootNode.boundingBox.centre.z);
-	// for (int i = 0; i < numBVHNodes; ++i)
-	// {
-	// 	printf("[%d]\tx: %.4f, y: %.4f, z: %.4f\n", i, nodes[i].boundingBox.centre.x, nodes[i].boundingBox.centre.y, nodes[i].boundingBox.centre.z);
-	// 	printf("\twidth: %.4f, height: %.4f, depth: %.4f\n", i, nodes[i].boundingBox.width, nodes[i].boundingBox.height, nodes[i].boundingBox.depth);
-	// 	printf("\t\tleftChildIdx: %d, rightChildIdx: %d\n", nodes[i].leftChildIdx, nodes[i].rightChildIdx);
-	// 	printf("\t\tisLeaf(): %d\n", nodes[i].isLeaf());
-	// }
-
 //	printf("Generated.\n");
 
 	free (particleIdxs);
