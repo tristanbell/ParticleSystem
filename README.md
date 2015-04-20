@@ -1,7 +1,7 @@
 # ParticleSystem
 CUDA Particle System with OpenGL.
 
-Adapted ideas presented by Tero Karras' (http://devblogs.nvidia.com/parallelforall/thinking-parallel-part-i-collision-detection-gpu/)
+Adapted the ideas presented by Tero Karras' (http://devblogs.nvidia.com/parallelforall/thinking-parallel-part-i-collision-detection-gpu/)
 ## Compile & run
 To compile:
 
