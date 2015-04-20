@@ -6,8 +6,10 @@ Particle::Particle(Vec3 pos, Vec3 vel, float radius) :
 	radius(radius)
 { }
 
+// Move this particle
 void Particle::move()
 {
+	// Add velocity to position, to get the new position
 	position = position + velocity;
 }
 

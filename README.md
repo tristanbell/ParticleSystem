@@ -1,5 +1,7 @@
 # ParticleSystem
-CUDA Particle System with OpenGL
+CUDA Particle System with OpenGL.
+
+Adapted ideas presented by Tero Karras' (http://devblogs.nvidia.com/parallelforall/thinking-parallel-part-i-collision-detection-gpu/)
 ## Compile & run
 To compile:
 
@@ -11,4 +13,4 @@ To compile:
 
 To run:
 
-5. `./src/ParticleSystem`
+5. `./src/ParticleSystem <number of particles>`

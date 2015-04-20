@@ -40,6 +40,9 @@ int frame = 0, eTime, timebase = 0;
 
 ParticleManager *pManager;
 
+/**
+ * Calculate and display the current frame rate for benchmarking
+ */
 void calculateFrameRate() {
 	static float framesPerSecond = 0.0f; // This will store our fps
 	static float lastTime = 0.0f; // This will hold the time from the last frame
@@ -157,9 +160,6 @@ void motion(int x, int y) {
 	dx = (float) (x - ox);
 	dy = (float) (y - oy);
 
-//    switch (mode)
-//    {
-//        case M_VIEW:
 	if (buttonState == 3) {
 		// left+middle = zoom
 		camera_trans[2] += (dy / 100.0f) * 0.5f * fabs(camera_trans[2]);
@@ -172,41 +172,6 @@ void motion(int x, int y) {
 		camera_rot[0] += dy / 5.0f;
 		camera_rot[1] += dx / 5.0f;
 	}
-
-//            break;
-
-//        case M_MOVE:
-//            {
-//                float translateSpeed = 0.003f;
-//                float3 p = psystem->getColliderPos();
-//
-//                if (buttonState==1)
-//                {
-//                    float v[3], r[3];
-//                    v[0] = dx*translateSpeed;
-//                    v[1] = -dy*translateSpeed;
-//                    v[2] = 0.0f;
-//                    ixform(v, r, modelView);
-//                    p.x += r[0];
-//                    p.y += r[1];
-//                    p.z += r[2];
-//                }
-//                else if (buttonState==2)
-//                {
-//                    float v[3], r[3];
-//                    v[0] = 0.0f;
-//                    v[1] = 0.0f;
-//                    v[2] = dy*translateSpeed;
-//                    ixform(v, r, modelView);
-//                    p.x += r[0];
-//                    p.y += r[1];
-//                    p.z += r[2];
-//                }
-//
-//                psystem->setColliderPos(p);
-//            }
-//            break;
-//    }
 
 	ox = x;
 	oy = y;
@@ -253,8 +218,10 @@ void initGL(int argc, char **argv) {
 int main(int argc, char **argv) {
 	initGL(argc, argv);
 	
+	// Default number of particles
 	int numParticles = 1000;
 	
+	// Command line argument used to decide how many particles
 	if (argc > 1) {
 		numParticles = atoi(argv[1]);
 		
@@ -265,11 +232,13 @@ int main(int argc, char **argv) {
 		}
 	}
 
+	// Generate the required number of particles
 	pManager = new ParticleManager(numParticles, Vec3(2, 2, 2));
 
 	glutMainLoop();
 
-	 delete pManager;
+	// Free the memory used to store the particles
+	delete pManager;
 
 	return 0;
 }

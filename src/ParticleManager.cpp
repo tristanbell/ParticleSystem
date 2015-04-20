@@ -68,55 +68,24 @@ ParticleManager::ParticleManager(int numParticles, Vec3 boxDimensions) {
 
 	float maxVel = boxDimensions.x / 200;
 
-//	float minRadius = 0.01;
-//	float maxRadius = 0.1;
-
 	float radius = 0.02;
 
-	if (numParticles == 2) {
-		Vec3 pos1(minX, 0, 0);
-		Vec3 pos2(maxX, 0, 0);
-		Vec3 vel1(maxVel, 0, 0);
-		Vec3 vel2(-maxVel, 0, 0);
+	// Create all of the particles with random position and velocity
+	for (int i = 0; i < numParticles; i++) {
+		float xPos = randomFloat(minX, maxX);
+		float yPos = randomFloat(minY, maxY);
+		float zPos = randomFloat(minZ, maxZ);
 
-		Particle newParticle(pos1, vel1, 0.02);
-		Particle newParticle2(pos2, vel2, 0.02);
+		float xVel = randomFloat(-maxVel, maxVel);
+		float yVel = randomFloat(-maxVel, maxVel);
+		float zVel = randomFloat(-maxVel, maxVel);
+
+		Vec3 pos(xPos, yPos, zPos);
+		Vec3 vel(xVel, yVel, zVel);
+
+		Particle newParticle(pos, vel, radius);
+		// Add particle to list
 		mParticles.push_back(newParticle);
-		mParticles.push_back(newParticle2);
-	}
-	else if (numParticles == 3) {
-		Vec3 pos1(minX, 0, 0);
-		Vec3 pos2(maxX, 0, 0);
-		Vec3 pos3(0, maxY, 0);
-
-		Vec3 vel1(maxVel, 0, 0);
-		Vec3 vel2(-maxVel, 0, 0);
-		Vec3 vel3(0, -maxVel, 0);
-
-		Particle newParticle(pos1, vel1, 0.02);
-		Particle newParticle2(pos2, vel2, 0.02);
-		Particle newParticle3(pos3, vel3, 0.02);
-		mParticles.push_back(newParticle);
-		mParticles.push_back(newParticle2);
-		mParticles.push_back(newParticle3);
-	}
-	else {
-		for (int i = 0; i < numParticles; i++) {
-			float xPos = randomFloat(minX, maxX);
-			float yPos = randomFloat(minY, maxY);
-			float zPos = randomFloat(minZ, maxZ);
-
-			float xVel = randomFloat(-maxVel, maxVel);
-			float yVel = randomFloat(-maxVel, maxVel);
-			float zVel = randomFloat(-maxVel, maxVel);
-
-			Vec3 pos(xPos, yPos, zPos);
-			Vec3 vel(xVel, yVel, zVel);
-
-//			float radius = randomFloat(minRadius, maxRadius);
-			Particle newParticle(pos, vel, radius);
-			mParticles.push_back(newParticle);
-		}
 	}
 
 	cuda_init(&mParticles[0], numParticles);
@@ -162,6 +131,7 @@ float *ParticleManager::particlesArray() {
 	return array;
 }
 
+// Update method, called every time the particles move
 void ParticleManager::update() {
 	particles_update(&mParticles[0], mParticles.size());
 
@@ -176,6 +146,7 @@ void ParticleManager::update() {
 	delete pArray;
 }
 
+// Method for drawing the particles on screen, using OpenGL
 void ParticleManager::render() {
 	glEnable(GL_POINT_SPRITE);
 	glTexEnvi(GL_POINT_SPRITE, GL_COORD_REPLACE, GL_TRUE);

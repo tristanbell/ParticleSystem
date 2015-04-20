@@ -116,13 +116,13 @@ public:
  * Hierarchy structure.
  */
 class AABB {
-public:
+private:
 	DeviceVec centre;
-// private:
 	float width;
 	float height;
 	float depth;
 
+	// Accessor methods
 	__host__ __device__ float getLeft(float halfWidth) {
 		return centre.x - halfWidth;
 	}
@@ -163,6 +163,9 @@ public:
 		return AABB(centre, diameter, diameter, diameter);
 	}
 
+	/**
+ 	 * Function for checking whether this AABB and another intersect
+ 	 */
 	__device__ bool intersects(AABB *other) {
 		float halfWidth = width / 2;
 		float oHalfWidth = other->width / 2;
@@ -187,6 +190,7 @@ public:
 		return true;
 	}
 
+	// Get the AABB that is found by combining two AABBs
 	AABB aabbUnion(AABB other) {
 		float halfWidth = width / 2;
 		float oHalfWidth = other.width / 2;
@@ -195,6 +199,7 @@ public:
 		float halfDepth = depth / 2;
 		float oHalfDepth = other.depth / 2;
 
+		// Get the extreme values (leftmost, rightmost, topmost, etc.) from either AABB
 		float left = min(getLeft(halfWidth), other.getLeft(oHalfWidth));
 		float right = max(getRight(halfWidth), other.getRight(oHalfWidth));
 		float top = max(getTop(halfHeight), other.getTop(oHalfHeight));
@@ -202,6 +207,7 @@ public:
 		float front = max(getFront(halfDepth), other.getFront(oHalfDepth));
 		float back = min(getBack(halfDepth), other.getBack(oHalfDepth));
 
+		// Calculate new width, height and depth based on above calculation
 		float newWidth = right - left;
 		float newHeight = top - bottom;
 		float newDepth = front - back;
@@ -231,21 +237,27 @@ struct BVHNode {
 		particleIdx(-1), boundingBox(aabb), leftChildIdx(l), rightChildIdx(r)
 	{ }
 
+	// Static function for creating a leaf node which directly represents a particle
 	static BVHNode leafNode(Particle *p, int idx) {
+		// Find the aabb bounding box for this particle
+		// -1 represents there are no child nodes of this element
 		BVHNode node(AABB::fromParticle(p), -1, -1);
+		// Set the particle index
 		node.particleIdx = idx;
 
 		return node;
 	}
 
-	__host__ __device__ bool isLeaf() {
+	// Check whether a node is a leaf
+	__device__ bool isLeaf() {
+		// A node is leaf if both of it's child indexes are -1
 		return leftChildIdx == -1 && rightChildIdx == -1;
 	}
 
+	// Functions for checking the presence of individual children
 	__device__ bool hasLeftChild() {
 		return leftChildIdx != -1;
 	}
-
 	__device__ bool hasRightChild() {
 		return rightChildIdx != -1;
 	}
@@ -255,49 +267,61 @@ static thrust::host_vector<BVHNode> nodes;
 static BVHNode *d_nodes;
 static int numBVHNodes;
 
+// Device function for checking whether two given particles collide
 __device__ bool particlesCollide(Particle *p1, Particle *p2) {
+	// Find the vector between the two particles
 	DeviceVec collideVec = DeviceVec(&(p2->position)) - DeviceVec(&(p1->position));
-
+	// Find the combined radius of the two particles
+	// 
 	float radiuses = p1->radius + p2->radius;
 	float collideDistSq = radiuses * radiuses;
 
 	return collideVec.lengthSquared() <= collideDistSq;
 }
 
+// Resolve a collision between two colliding particles
 __device__ void collide(Particle *p1, Particle *p2, DeviceVec *force) {
 	DeviceVec posA(&p1->position);
 	DeviceVec posB(&p2->position);
 	DeviceVec velA(&p1->velocity);
 	DeviceVec velB(&p2->velocity);
 
+	// relative Position and velocity
 	DeviceVec relPos = posB - posA;
     DeviceVec relVel = velB - velA;
 
+    // Distance between the two particles
 	float dist = relPos.length();
+	// Minimum distance for these particles to be colliding
 	float collideDist = p1->radius + p2->radius;
 
 	DeviceVec norm = relPos.normalised();
 
+	// New force is accumalated in the force parameter
 	// spring force
 	*force = *force - norm * 0.5f * (collideDist - dist);
 	// damping force
     *force = *force + relVel * 0.02f;
 }
 
+/**
+ * Recursive BVH Tree traversal
+ */ 
 __device__ void traverse( BVHNode node, BVHNode *nodes, AABB& queryAABB, Particle *particles, int particleIdx, DeviceVec* forces )
 {
 	if (node.boundingBox.intersects(&queryAABB))
 	{
 		Particle* particle = &particles[particleIdx];
-		// Leaf node => resolve collision.
+		// Base case: Leaf node
 		if (node.isLeaf()) {
 			if (particleIdx != node.particleIdx && particlesCollide(particle, &particles[node.particleIdx])){
+				 // Resolve collision.
 				collide(particle, &particles[node.particleIdx], &forces[particleIdx]);
 			}
 		}
-
 		else
 		{
+			// Recurse over left and right children as necessary
 			if (node.hasLeftChild()) {
 				BVHNode childL = nodes[node.leftChildIdx];
 				traverse(childL, nodes, queryAABB, particles, particleIdx, forces);
@@ -310,43 +334,61 @@ __device__ void traverse( BVHNode node, BVHNode *nodes, AABB& queryAABB, Particl
 	}
 }
 
+/**
+ * More efficient iterative traversal
+ */
 __device__ void traverseIterative( BVHNode *nodes, BVHNode root, AABB& queryAABB, Particle *particles, int particleIdx, DeviceVec* forces )
 {
 	Particle* particle = &particles[particleIdx];
 
+	// Stack for keeping track of which nodes to traverse next
     BVHNode* stack[64];
     BVHNode** stackPtr = stack;
+    // push to stak
     *stackPtr++ = NULL;
 
+    // Start from the root
     BVHNode* node = &root;
     do
     {
     	BVHNode *childL = node->hasLeftChild() ? &nodes[node->leftChildIdx] : NULL;
     	BVHNode *childR = node->hasRightChild() ? &nodes[node->rightChildIdx] : NULL;
 
+    	// Check whether left and right children intersect with the particle in question
+    	// Also make sure we are not the not representing the partice itself
         bool overlapL = childL && childL->boundingBox.intersects(&queryAABB) && particleIdx != childL->particleIdx;
         bool overlapR = childR && childR->boundingBox.intersects(&queryAABB) && particleIdx != childR->particleIdx;
 
+        // If there is an overlap and you are already a leaf then resolve the collision
         if (overlapL && childL->isLeaf())
         	collide(particle, &particles[childL->particleIdx], &forces[particleIdx]);
         if (overlapR && childR->isLeaf())
         	collide(particle, &particles[childR->particleIdx], &forces[particleIdx]);
 
+        // If there is an overlap and you are not a leaf then traverse further
         bool traverseL = (overlapL && !childL->isLeaf());
         bool traverseR = (overlapR && !childR->isLeaf());
 
+
         if (!traverseL && !traverseR)
+        	// if nothing else to traverse, pop from stack
             node = *--stackPtr;
         else
         {
+        	// If left needs traversing, set node to be left child otherwise set to right child
+        	// This works because we already know that at least one of the nodes need traversing
             node = (traverseL) ? childL : childR;
             if (traverseL && traverseR)
+            	// If they actually both need traversing then push right child onto the stack
                 *stackPtr++ = childR;
         }
     }
     while (node != NULL);
 }
 
+/** 
+ * Kernel for moving the particles
+ */
 __global__ void moveParticles(int bvhRootIdx, BVHNode *nodes, Particle *particles, Particle *out, int size, DeviceVec *forces) {
 	int t_x = threadIdx.x;
 	int b_x = blockIdx.x;
@@ -361,7 +403,9 @@ __global__ void moveParticles(int bvhRootIdx, BVHNode *nodes, Particle *particle
 		// Initialise force for this particle
 		forces[in_x] = DeviceVec(0, 0, 0);
 
+		// Find the AABB query for the particle question
 		AABB query = AABB::fromParticle(&thisParticle);
+		// Traverse the BVH - querying for this particle
 		traverseIterative( nodes, nodes[bvhRootIdx], query, particles, in_x, forces);
 
 		__syncthreads();
@@ -458,6 +502,9 @@ __host__ __device__ unsigned int morton3D(Particle *p) {
 	return (xx * 4) + (yy * 2) + zz;
 }
 
+/**
+ * GPU Kernel for creating an array of Morton codes
+ */
 __global__ void copyMortonCodes(Particle *particles, unsigned int *mortonCodes, int size) {
 	int t_x = threadIdx.x;
 	int b_x = blockIdx.x;
@@ -468,15 +515,25 @@ __global__ void copyMortonCodes(Particle *particles, unsigned int *mortonCodes, 
 	}
 }
 
+/**
+ * Find the number of leading zeroes in the bit representation of an unsigned integer 
+ */ 
 int leadingZeros(unsigned int n) {
+	// Find how many bits are being used to represent the int 
 	int numBits = (int)sizeof(n) * 8;
 
+	// Create a mask that will pass over the number
+	// The mask starts as a 1 followed by a series of 0s (e.g. 10000000)
+	// The 1 will then shift along to the right
 	unsigned int mask = 1 << (numBits-1);
 
 	int numZeros = 0;
 
+	// performing bitwise AND of the number and the mask will indicate whether the number has a 1 in a given position
 	while (((n & mask) == 0) && (mask > 0)) {
+		// increment the count for each position where we haven't yet found a 1
 		numZeros++;
+		// Shift the mask along by 1 bit
 		mask >>= 1;
 	}
 
@@ -484,11 +541,7 @@ int leadingZeros(unsigned int n) {
 }
 
 int splitSearch(unsigned int *sortedMortonCodes, unsigned int currentMSB, unsigned int currentBest, int first, int last) {
-//	printf("\tCurrent best: %u\n", currentBest);
-
 	int mid = first + ((last - first) + 1)/2;
-
-//	printf("Looking at %d: %u\n", mid, sortedMortonCodes[mid]);
 
 	int msb = leadingZeros(sortedMortonCodes[0] ^ sortedMortonCodes[mid]);
 
@@ -501,11 +554,9 @@ int splitSearch(unsigned int *sortedMortonCodes, unsigned int currentMSB, unsign
 	}
 
 	if (msb > currentMSB) {
-//		printf("Going right\n");
 		return splitSearch(sortedMortonCodes, currentMSB, mid, mid + 1, last);
 	}
 	else {
-//		printf("Going left\n");
 		return splitSearch(sortedMortonCodes, currentMSB, currentBest, first, mid - 1);
 	}
 }
