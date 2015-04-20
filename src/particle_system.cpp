@@ -152,8 +152,7 @@ void mouse(int button, int state, int x, int y) {
 /**
  * Called when the mouse is dragged. Updates the camera
  * parameters depending on the button state. (Taken from
- * the CUDA sample and commented out what we're currently
- * not using)
+ * the CUDA sample)
  */
 void motion(int x, int y) {
 	float dx, dy;
@@ -182,7 +181,7 @@ void motion(int x, int y) {
 void initGL(int argc, char **argv) {
 	glutInit(&argc, argv);
 	glutInitDisplayMode(
-			GLUT_RGB | GLUT_DOUBLE | GLUT_DEPTH /*| GLUT_MULTISAMPLE*/);
+			GLUT_RGB | GLUT_DOUBLE | GLUT_DEPTH );
 	glutInitWindowSize(windowWidth, windowHeight);
 	glutCreateWindow("Particle System");
 	glutIdleFunc(&idle);
@@ -193,22 +192,6 @@ void initGL(int argc, char **argv) {
 
 	glEnable(GL_DEPTH_TEST);
 	glDepthFunc(GL_LESS);
-//	glEnable(GL_MULTISAMPLE_ARB);
-
-//	glEnable(GL_LIGHT0);
-//	glEnable(GL_NORMALIZE);
-//	glEnable(GL_COLOR_MATERIAL);
-//	glEnable(GL_LIGHTING);
-//
-//	glLightfv(GL_LIGHT0, GL_AMBIENT, light_ambient);
-//	glLightfv(GL_LIGHT0, GL_DIFFUSE, light_diffuse);
-//	glLightfv(GL_LIGHT0, GL_SPECULAR, light_specular);
-//	glLightfv(GL_LIGHT0, GL_POSITION, light_position);
-//
-//	glMaterialfv(GL_FRONT, GL_AMBIENT, mat_ambient);
-//	glMaterialfv(GL_FRONT, GL_DIFFUSE, mat_diffuse);
-//	glMaterialfv(GL_FRONT, GL_SPECULAR, mat_specular);
-//	glMaterialfv(GL_FRONT, GL_SHININESS, high_shininess);
 
 	glewInit();
 
@@ -227,7 +210,7 @@ int main(int argc, char **argv) {
 		
 		// If they haven't entered a number
 		if (numParticles == 0) {
-			fprintf(stderr, "Please enter a valid number of particles (1-200000)");
+			fprintf(stderr, "Please enter a valid number of particles (1-10000)");
 			return 1;
 		}
 	}

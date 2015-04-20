@@ -58,7 +58,7 @@ GLuint compileProgram(const char *vsource, const char *fsource) {
 ParticleManager::ParticleManager(int numParticles, Vec3 boxDimensions) {
 	srand (time(NULL));
 
-float	maxX = boxDimensions.x / 2;
+	float maxX = boxDimensions.x / 2;
 	float minX = -maxX;
 	float maxY = boxDimensions.y / 2;
 	float minY = -maxY;
@@ -157,7 +157,7 @@ void ParticleManager::update() {
 			GL_DYNAMIC_DRAW);
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
 
-	delete pArray;
+	delete [] pArray;
 }
 
 // Method for drawing the particles on screen, using OpenGL

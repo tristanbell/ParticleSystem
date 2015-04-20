@@ -122,7 +122,8 @@ private:
 	float height;
 	float depth;
 
-	// Accessor methods
+	// Accessor methods (half dimensions are pre-computed
+	// to provide a small level of optimisation)
 	__host__ __device__ float getLeft(float halfWidth) {
 		return centre.x - halfWidth;
 	}
@@ -272,14 +273,16 @@ __device__ bool particlesCollide(Particle *p1, Particle *p2) {
 	// Find the vector between the two particles
 	DeviceVec collideVec = DeviceVec(&(p2->position)) - DeviceVec(&(p1->position));
 	// Find the combined radius of the two particles
-	// 
+	
 	float radiuses = p1->radius + p2->radius;
 	float collideDistSq = radiuses * radiuses;
 
+	// Particles collide if the distance between them is less
+	// than their combined radiuses
 	return collideVec.lengthSquared() <= collideDistSq;
 }
 
-// Resolve a collision between two colliding particles
+// Resolve a collision between two particles. Adapted from CUDA samples
 __device__ void collide(Particle *p1, Particle *p2, DeviceVec *force) {
 	DeviceVec posA(&p1->position);
 	DeviceVec posB(&p2->position);
@@ -412,6 +415,7 @@ __global__ void moveParticles(int bvhRootIdx, BVHNode *nodes, Particle *particle
 
 		velD = velD + forces[in_x];
 
+		// The below is the original (naive) collision detection method
 //		 DeviceVec force(0, 0, 0);
 //
 //		 for (int i = 0; i < size; i++) {
@@ -471,7 +475,7 @@ __global__ void moveParticles(int bvhRootIdx, BVHNode *nodes, Particle *particle
 	}
 }
 
-// Morton encoding/decoding functions taken from http://devblogs.nvidia.com/parallelforall/thinking-parallel-part-iii-tree-construction-gpu/
+// Morton encoding functions taken from http://devblogs.nvidia.com/parallelforall/thinking-parallel-part-iii-tree-construction-gpu/
 ////////////////////////////////////////
 // Expands a 10-bit integer into 30 bits
 // by inserting 2 zeros after each bit.
@@ -503,7 +507,7 @@ __host__ __device__ unsigned int morton3D(Particle *p) {
 }
 
 /**
- * GPU Kernel for creating an array of Morton codes
+ * GPU Kernel for creating an array of Morton codes from a Particle array
  */
 __global__ void copyMortonCodes(Particle *particles, unsigned int *mortonCodes, int size) {
 	int t_x = threadIdx.x;
@@ -542,7 +546,7 @@ int leadingZeros(unsigned int n) {
 
 /**
  * Recursive method for finding the ideal place to split a series of Morton codes
- * The ideal place is the furthest point at which there is the first difference in the most significant bit
+ * The ideal place is the furthest point at which there is the first difference in the most significant bit (unused in favour of the more efficient and reliable tutorial method).
  */
 int splitSearch(unsigned int *sortedMortonCodes, unsigned int currentMSB, unsigned int currentBest, int first, int last) {
 	// find the midpoint of the indexes
@@ -570,13 +574,12 @@ int splitSearch(unsigned int *sortedMortonCodes, unsigned int currentMSB, unsign
 	}
 }
 
+/**
+ * This function taken directly from the tutorial (http://devblogs.nvidia.com/parallelforall/thinking-parallel-part-iii-tree-construction-gpu/).
+ * Finds the ideal place to split a series of Morton codes.
+ * The ideal place is the furthest point at which there is the first difference in the most significant bit.
+ */
 int findSplit(unsigned int *sortedMortonCodes, int first, int last) {
-//	// Generate an initial guess for most significant differing bit
-//	int msb = leadingZeros(sortedMortonCodes[first] ^ sortedMortonCodes[last]);
-//	unsigned int currentBest = first;
-//
-//	return splitSearch(sortedMortonCodes, msb, currentBest, first, last);
-
 	// Identical Morton codes => split the range in the middle.
 	unsigned int firstCode = sortedMortonCodes[first];
 	unsigned int lastCode = sortedMortonCodes[last];
@@ -671,9 +674,6 @@ void cuda_init(Particle *particles, int numParticles) {
 	// cudaMalloc((void**) &d_particleIdxs, sizeof(int) * numParticles);
 	cudaMalloc((void**) &d_morton_codes, sizeof(unsigned int) * numParticles);
 
-	// Copy over particles
-//	cudaMemcpy(d_particles, particles, sizeof(Particle) * numParticles, cudaMemcpyHostToDevice);
-
 	cudaError_t err = cudaGetLastError();
 	if (err != cudaSuccess)
 	    printf("Memory Allocation Error: %s\n", cudaGetErrorString(err));
@@ -706,24 +706,13 @@ void particles_update(Particle *particles, int particlesSize) {
 	// Sort Particles by their Morton codes
 	thrust::sort_by_key(mortonCodes, mortonCodes + particlesSize, particleIdxs);
 
-//	for (int i = 0; i < particlesSize; i++) {
-//		printf("%u, ", mortonCodes[i]);
-//	}
-//	printf("\n\n\n");
-
-//	printf("Copied. Generating BVH...\n");
-
 	// Generate the BVH
 	numBVHNodes = 0;
 	nodes.clear();
 	BVHNode rootNode = generateBVH(mortonCodes, particles, particleIdxs, 0, particlesSize - 1, numBVHNodes, nodes);
 	int rootIndex = nodes.size() - 1;
 
-//	printf("Generated.\n");
-
 	free (particleIdxs);
-
-//	printf("Nodes: %d\n", numBVHNodes);
 
 	err = cudaMalloc((void**) &d_nodes, sizeof(BVHNode) * numBVHNodes);
 	if (err != cudaSuccess)
@@ -733,19 +722,16 @@ void particles_update(Particle *particles, int particlesSize) {
 	if (err != cudaSuccess)
 		printf("[%d] Copy Nodes Error: %s\n", count, cudaGetErrorString(err));
 
-//	printf("Copied. Moving...\n");
-
 	// Kernel for calculating, and then moving the particles to, the new positions
 	moveParticles<<<gridSize, blockSize>>>(rootIndex, d_nodes, d_particles, d_particles_out, particlesSize, d_forces);
 	cudaMemcpy(particles, d_particles_out, sizeof(Particle) * particlesSize, cudaMemcpyDeviceToHost);
 
 	cudaThreadSynchronize();
 
-//	err = cudaGetLastError();
-//	if (err != cudaSuccess)
-//	    printf("[%d] Move Particles Error: %s\n", count++, cudaGetErrorString(err));
+	err = cudaGetLastError();
+	if (err != cudaSuccess)
+	    printf("[%d] Move Particles Error: %s\n", count++, cudaGetErrorString(err));
 
 	// copy result from device to host
-
 	cudaFree(d_nodes);
 }
